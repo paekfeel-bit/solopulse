@@ -1,0 +1,35 @@
+# SoloPulse — Netlify (Next.js + @netlify/plugin-nextjs)
+#
+# Plugin error fix:
+#   "publish directory cannot be the same as the base directory"
+# → publish MUST be ".next", never "." / empty / repo root.
+#
+# Also set the same in Netlify UI if it still says Publish = (empty) or "." :
+#   Site configuration → Build & deploy → Build settings
+#   Base directory:     (empty)
+#   Build command:      npm run build
+#   Publish directory:  .next
+# Then: Deploys → Trigger deploy → Clear cache and deploy site
+
+[build]
+  command = "npm run build"
+  publish = ".next"
+
+[build.environment]
+  NODE_VERSION = "20"
+  NEXT_TELEMETRY_DISABLED = "1"
+  SECRETS_SCAN_OMIT_PATHS = "export/**"
+
+[functions]
+  node_bundler = "esbuild"
+
+[[headers]]
+  for = "/api/*"
+  [headers.values]
+    Cache-Control = "no-store, max-age=0"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    Referrer-Policy = "strict-origin-when-cross-origin"

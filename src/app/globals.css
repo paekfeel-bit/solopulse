@@ -1,0 +1,186 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root,
+html.dark,
+html[data-theme="dark"] {
+  --bg: #09090b;
+  --fg: #fafafa;
+  --muted: #71717a;
+  --card: rgba(24, 24, 27, 0.85);
+  --border: #27272a;
+  --header: rgba(9, 9, 11, 0.88);
+  --accent: #f59e0b;
+  --background: #09090b;
+  --foreground: #fafafa;
+}
+
+html.light,
+html[data-theme="light"] {
+  --bg: #f4f4f5;
+  --fg: #18181b;
+  --muted: #71717a;
+  --card: rgba(255, 255, 255, 0.92);
+  --border: #e4e4e7;
+  --header: rgba(255, 255, 255, 0.9);
+  --accent: #d97706;
+  --background: #f4f4f5;
+  --foreground: #18181b;
+}
+
+html {
+  color-scheme: dark;
+}
+
+html.light,
+html[data-theme="light"] {
+  color-scheme: light;
+}
+
+html,
+body {
+  overflow-x: clip;
+  max-width: 100vw;
+}
+
+body {
+  color: var(--fg);
+  background: var(--bg);
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(245, 158, 11, 0.1), transparent),
+    radial-gradient(ellipse 60% 40% at 100% 100%, rgba(234, 88, 12, 0.05), transparent);
+  min-height: 100dvh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  /* Only horizontal safe areas on body — sticky header handles top */
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+  word-break: keep-all; /* Korean: avoid mid-word breaks when possible */
+  overflow-wrap: anywhere;
+}
+
+/* Mono numbers still break long strings cleanly */
+.font-mono,
+[class*="font-mono"] {
+  word-break: break-all;
+  overflow-wrap: anywhere;
+}
+
+/* Touch targets on mobile */
+@media (max-width: 640px) {
+  button,
+  a.rounded-lg,
+  a.rounded-xl {
+    min-height: 2rem;
+  }
+}
+
+html.light body,
+html[data-theme="light"] body {
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(245, 158, 11, 0.08), transparent),
+    radial-gradient(ellipse 60% 40% at 100% 100%, rgba(251, 191, 36, 0.06), transparent);
+}
+
+button,
+input,
+select {
+  -webkit-tap-highlight-color: transparent;
+}
+
+@keyframes fadeInScale {
+  from {
+    opacity: 0;
+    transform: scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-in {
+  animation: fadeInScale 0.35s ease-out;
+}
+
+/* Ticket stream — duration set inline; real speed ∝ hashrate */
+@keyframes ticketFlow {
+  0% {
+    left: -5%;
+    opacity: 0;
+  }
+  12% {
+    opacity: 1;
+  }
+  88% {
+    opacity: 1;
+  }
+  100% {
+    left: 102%;
+    opacity: 0;
+  }
+}
+
+@keyframes engineSpin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes engine-scan {
+  0% {
+    top: -20%;
+  }
+  100% {
+    top: 110%;
+  }
+}
+
+.engine-scan {
+  animation: engine-scan 4.5s linear infinite;
+}
+
+@keyframes engine-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.engine-shimmer {
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(251, 191, 36, 0.25),
+    transparent
+  );
+  background-size: 200% 100%;
+  animation: engine-shimmer 2.8s linear infinite;
+}
+
+@keyframes tetrisLand {
+  from {
+    transform: translateY(-8px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-thumb {
+  background: #52525b;
+  border-radius: 3px;
+}

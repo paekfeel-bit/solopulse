@@ -1,0 +1,39 @@
+Netlify 플러그인 오류 해결 (2분)
+================================
+
+에러:
+  Your publish directory cannot be the same as the base directory of your site
+  Plugin "@netlify/plugin-nextjs" failed
+
+앱 코드 문제가 아닙니다. Next.js 빌드는 성공했고, 배포 설정만 틀린 상태입니다.
+
+■ Netlify 웹에서 고치기 (필수)
+  1) https://app.netlify.com → SoloPulse 사이트
+  2) Site configuration → Build & deploy → Build settings → Edit
+  3) 값을 정확히:
+
+       Base directory:      (비워 둠)
+       Package directory:   (비워 둠)
+       Build command:       npm run build
+       Publish directory:   .next
+
+     절대 안 됨:
+       Publish directory = . 
+       Publish directory = (빈칸)  ← 루트로 잡히면 같은 오류
+       Publish directory = 저장소 루트 경로
+
+  4) Save
+  5) Deploys → Trigger deploy → Clear cache and deploy site
+
+■ 파일 설정 (이미 프로젝트에 있음)
+  netlify.toml:
+
+    [build]
+      command = "npm run build"
+      publish = ".next"
+
+  Git 연동이면 이 파일을 커밋·푸시한 뒤 위 5번 배포.
+
+■ 확인
+  성공 시 Deploy log 에 Next.js 빌드 + plugin-nextjs 가 통과하고
+  https://xxxx.netlify.app 가 열립니다.

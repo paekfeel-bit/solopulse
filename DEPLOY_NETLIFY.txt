@@ -1,0 +1,76 @@
+SoloPulse — Netlify 영구 배포 (터미널 종료 후에도 동작)
+========================================================
+
+■ 공식 URL (고정)
+  https://solopulse.netlify.app/
+  사이트 이름: solopulse
+  (예전 joyful-snickerdoodle-f82cf8 은 이름 변경됨 — solopulse 만 사용)
+
+■ 한 줄 요약
+  · 웹앱(풀·확률·가격·차트) → Netlify에 올리면 PC/터미널 OFF 해도 24시간 동작
+  · 보드 실측(해시·온도) → 집 PC에서 채굴기 터널만 켜 두면 Netlify에서도 표시
+  · 업데이트 → 이 폴더에서 수정 후 update-and-deploy.bat 또는 Git 푸시
+
+■ 절대 하지 말 것
+  · zip 만 드래그앤드롭 (정적 사이트용) → Next.js 빌드 없이 실패/보안 거부 흔함
+  · publish = "out" + output export (API 전부 깨짐)
+
+■ 방법 A — GitHub 연동 (가장 안정 · 업데이트 쉬움) ★권장
+  1) GitHub 새 저장소에 이 프로젝트 푸시 (node_modules / .next 제외)
+  2) https://app.netlify.com → Add new site → Import an existing project
+  3) 저장소 연결
+  4) 빌드 설정:  ★ 여기 틀리면 플러그인 오류 남
+       Base directory:     (비움)
+       Build command:      npm run build
+       Publish directory:  .next
+         ※ "." 또는 비움 금지 → 오류:
+           "publish directory cannot be the same as the base directory"
+       Node version:       20
+  5) Deploy site → https://xxxx.netlify.app 영구 URL
+  6) 이후 코드 수정 후 git push 만 하면 자동 업데이트
+
+■ 방법 B — Netlify CLI (이 PC에서 바로 영구 배포)
+  1) 이 폴더에서:
+       npm install
+       npx netlify-cli login
+       npx netlify-cli sites:create
+       또는:  deploy-netlify.bat
+  2) 성공 시 URL이 터미널에 출력됩니다.
+  3) 업데이트:  update-and-deploy.bat
+
+■ 방법 C — 소스 zip (백업/이전용)
+  1) npm run pack:export
+  2) export\solopulse-netlify-READY.zip
+  3) Netlify에서 CLI 또는 Git으로 배포 (드래그앤드롭 비권장)
+  4) Site settings → Build:
+       Build command = npm run build
+       NODE_VERSION = 20
+
+■ 터미널을 꺼도 되는 것 / 안 되는 것
+  [Netlify만]
+    OK  풀(CKPool) 해시, 솔로 확률, BTC 가격, 멤풀, 네트워크, 차트
+    NO  보드 LAN IP 직접 접속 (172.x / 192.168.x 는 클라우드에서 불가)
+
+  [보드 실측까지 Netlify에서 유지]
+    1) 집 PC에서 한 번:
+         start-miner-tunnel.bat
+       (또는 PowerShell: scripts\install-permanent-tunnel.ps1)
+    2) 창에 나온 https://….trycloudflare.com 을
+       Netlify 대시보드 기기 칸에 넣고 [기기 연결]
+    3) 그 뒤 Grok/개발 터미널은 종료해도 됨
+       (집 PC 전원 + 터널 프로세스만 유지)
+
+■ 보안 (Netlify 정책)
+  · 비밀 키 없음 — 공개 블록체인/풀 API만 사용
+  · /api/device SSRF 가드: LAN + trycloudflare 등 허용 목록만
+  · Next 15.5.x 패치 버전 사용
+
+■ 포함 파일 (배포 패키지)
+  src/ public/ package.json package-lock.json
+  next.config.ts tsconfig.json tailwind.config.ts postcss.config.mjs
+  netlify.toml DEPLOY_NETLIFY.txt NETLIFY.md UPDATE.md README.md
+  scripts/ 배치 파일들
+  ※ node_modules / .next 제외 (Netlify가 npm install + build)
+
+■ 연락
+  https://x.com/medbedeee
