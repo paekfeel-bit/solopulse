@@ -1,32 +1,87 @@
-# SoloPulse Intelligence — rebuild status
+# SoloPulse — Project Status
 
-Date: 2026-07-28
+**Date:** 2026-07-28  
+**Production:** https://solopulse-production.up.railway.app  
+**GitHub (target):** https://github.com/medbedee/solopulse  
 
-## Done (this rebuild pass)
+## Implemented: Method 1 + Method 2
 
-- **Local Agent path** (correct production model): `agent/local-agent.mjs` + `start-local-agent.bat`
-- **Cloud ingest**: `/api/agent/telemetry`, `/api/agent/heartbeat`, file/memory store
-- **Dashboard prefers Agent telemetry** over broken cloud→LAN proxy
-- **Analog instrument cluster** (hashrate / temp / power gauges)
-- **Source Engine live animation** driven by real Poisson λ + live hashrate
-- Warm tube / stone retro visual base
+### Method 1 — Local Bridge → Railway WebSocket ⭐
 
-## Connection rule (non-negotiable)
+| Piece | Path | Status |
+|-------|------|--------|
+| Custom server (Next + WS `/ws`) | `server.mjs` | ✅ Running on Railway |
+| Agent store dual-write | `server-agent-store.mjs` | ✅ |
+| Local Bridge (LAN poll → wss) | `bridge/bridge.mjs` | ✅ |
+| One-click starter | `start-bridge.bat` | ✅ |
+| Browser client | `useAgentTelemetry.ts` | ✅ WS + HTTP fallback |
+| HTTP agent path | `agent/local-agent.mjs` | ✅ |
+| Docker host | `Dockerfile` + `railway.json` | ✅ SUCCESS deploy |
 
-Cloud **must not** scan or open user private IPs.  
-Device data only via **Local Agent push**.
+**Runtime log (Railway):**
+```
+> SoloPulse http://0.0.0.0:8080
+> WebSocket /ws (bridge|browser)
+```
 
-## Still to expand (master prompt backlog)
+**How to use:**
+1. Open https://solopulse-production.up.railway.app  
+2. On home PC (same LAN as miner): double-click `start-bridge.bat`  
+3. Dashboard bottom tab **Agent** / gauges show live device hashrate  
 
-- Full monorepo (`apps/web`, `apps/backend`, `apps/worker`, `packages/*`)
-- PostgreSQL on Railway + multi-user auth
-- WebSocket realtime channel
-- Success Forensics full dataset pipeline
-- Journey engine polish
-- GitHub remote + Railway multi-service deploy
+### Method 2 — Capacitor hybrid ⭐⭐
 
-## How to run now
+| Piece | Path | Status |
+|-------|------|--------|
+| Capacitor config (Railway URL + cleartext) | `capacitor.config.ts` | ✅ |
+| Android project | `android/` | ✅ |
+| Cleartext / LAN HTTP | `android/.../network_security_config.xml` | ✅ |
+| Manifest usesCleartextTraffic | `AndroidManifest.xml` | ✅ |
+| Docs | `CAPACITOR.md` | ✅ |
 
-1. Deploy web (Vercel or Railway)
-2. On home PC: `start-local-agent.bat` (same Wi‑Fi as miner)
-3. Open dashboard — AGENT STREAMING + gauges should go live
+**Build APK (Android Studio):**
+```bash
+npm install
+npx cap sync android
+npx cap open android
+```
+
+### UI
+
+- Bottom tab nav (`BottomNav.tsx`): Gauges · Engine · Odds · Chart · Net · Agent  
+- Analog gauges + Source Engine Live  
+
+## Architecture constraint (permanent)
+
+Cloud **never** opens private IPs (`172.x` / `192.168.x`).  
+Only **home Agent/Bridge pushes** telemetry to Railway.
+
+## Deploy
+
+```bash
+npx railway up -y
+# or: npm run deploy:railway
+```
+
+Linked Railway project: `solopulse` (production)  
+Start command: `node server.mjs`
+
+## GitHub
+
+Local `main` has full source. Push requires your GitHub credentials:
+
+```bash
+cd solopulse
+git push -u origin main
+```
+
+Desktop archive: `solopulse-FULL-SOURCE.zip`
+
+## Env (optional)
+
+| Var | Default |
+|-----|---------|
+| `SOLOPULSE_AGENT_KEY` | `solopulse-local-dev-key` |
+| `RAILWAY_WS` | `wss://solopulse-production.up.railway.app/ws` |
+| `MINER_IP` / `MINER_SUBNET` | auto / `172.30.1` |
+| `CLIENT_ID` | `default` (or your BTC address) |
