@@ -1,12 +1,6 @@
 "use client";
 
-export type DashTab =
-  | "cluster"
-  | "engine"
-  | "odds"
-  | "chart"
-  | "network"
-  | "more";
+export type DashTab = "home" | "engine" | "odds" | "chart" | "more";
 
 const TABS: {
   id: DashTab;
@@ -14,11 +8,10 @@ const TABS: {
   labelKo: string;
   labelEn: string;
 }[] = [
-  { id: "cluster", icon: "◎", labelKo: "계기판", labelEn: "Gauges" },
+  { id: "home", icon: "◎", labelKo: "홈", labelEn: "Home" },
   { id: "engine", icon: "⚡", labelKo: "엔진", labelEn: "Engine" },
   { id: "odds", icon: "🎲", labelKo: "확률", labelEn: "Odds" },
   { id: "chart", icon: "📈", labelKo: "차트", labelEn: "Charts" },
-  { id: "network", icon: "🌐", labelKo: "네트워크", labelEn: "Net" },
   { id: "more", icon: "ℹ️", labelKo: "안내", labelEn: "Info" },
 ];
 
@@ -30,7 +23,7 @@ export function BottomNav({
   tab: DashTab;
   onChange: (t: DashTab) => void;
   locale: string;
-  /** @deprecated unused — link users never need bridge status lights */
+  /** @deprecated */
   agentLive?: boolean;
 }) {
   return (
@@ -38,7 +31,7 @@ export function BottomNav({
       className="fixed bottom-0 inset-x-0 z-50 border-t border-stone-700/90 bg-stone-950/95 backdrop-blur-md pb-[env(safe-area-inset-bottom)]"
       aria-label="Main menu"
     >
-      <div className="max-w-3xl mx-auto grid grid-cols-6 gap-0.5 px-1 pt-1.5 pb-1">
+      <div className="max-w-3xl mx-auto grid grid-cols-5 gap-0.5 px-1 pt-1.5 pb-1">
         {TABS.map((t) => {
           const active = tab === t.id;
           const label = locale === "ko" ? t.labelKo : t.labelEn;

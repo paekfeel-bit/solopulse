@@ -68,7 +68,7 @@ export function Dashboard({ address, onLogout }: Props) {
   /** Link-only product: pool is primary. Device path optional/silent for power users. */
   const deviceHr = useDeviceHashrate(false);
   const agent = useAgentTelemetry(true, address);
-  const [tab, setTab] = useState<DashTab>("cluster");
+  const [tab, setTab] = useState<DashTab>("home");
   const [celebrateOpen, setCelebrateOpen] = useState(true);
   const [localHistory, setLocalHistory] = useState(() => loadHistory(address));
   const [nowTick, setNowTick] = useState(() => Date.now());
@@ -402,14 +402,14 @@ export function Dashboard({ address, onLogout }: Props) {
           </div>
         )}
 
-        {/* ===== TAB: cluster ===== */}
-        {tab === "cluster" && (
+        {/* ===== TAB: home (gauges + network) — first screen ===== */}
+        {tab === "home" && (
           <>
         {/* Analog instrument cluster */}
         <section className="rounded-2xl border border-stone-700/90 bg-gradient-to-b from-stone-900/95 to-stone-950 p-3 sm:p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
           <div className="flex items-center justify-between gap-2 mb-2">
             <div className="text-[10px] uppercase tracking-[0.28em] text-amber-600 font-semibold">
-              SoloPulse Intelligence · INSTRUMENT CLUSTER
+              SoloPulse · HOME · GAUGES + NET
             </div>
             <div
               className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
@@ -761,6 +761,50 @@ export function Dashboard({ address, onLogout }: Props) {
             accent="pulse"
           />
         </div>
+
+        {/* Network (merged into first screen) */}
+        {net && <NetworkBar network={net} />}
+        <MempoolBlocks />
+        {net && (
+          <BestShareBar
+            bestShare={Number(u.bestshare || bestForLadder || 0)}
+            bestEver={Number(u.bestever || 0)}
+            networkDifficulty={net.difficulty || difficulty}
+          />
+        )}
+        {u.worker && u.worker.length > 0 && (
+          <section className="rounded-2xl border border-stone-700 bg-stone-950 p-4">
+            <h2 className="text-sm font-semibold mb-2">{t("workers")}</h2>
+            <div className="space-y-2">
+              {u.worker.map((w, idx) => (
+                <div
+                  key={`${w.workername}-${idx}`}
+                  className="rounded-xl bg-stone-900 border border-stone-800 px-3 py-2.5 flex flex-wrap items-center justify-between gap-2 min-w-0"
+                >
+                  <div className="min-w-0">
+                    <div className="text-xs font-mono truncate max-w-[200px] sm:max-w-md">
+                      {w.workername.includes(".")
+                        ? w.workername.split(".").slice(1).join(".") ||
+                          w.workername
+                        : w.workername || "default"}
+                    </div>
+                    <div className="text-[10px] text-stone-500 mt-0.5">
+                      last {w.lastshare ? formatTimeAgo(w.lastshare) : "—"}
+                    </div>
+                  </div>
+                  <div className="text-right min-w-0">
+                    <div className="text-sm font-mono font-semibold text-amber-500 break-all">
+                      {w.hashrate5m || w.hashrate1m || "—"}
+                    </div>
+                    <div className="text-[10px] text-stone-500 font-mono">
+                      best {formatDifficulty(Number(w.bestshare || 0))}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
           </>
         )}
 
@@ -827,54 +871,6 @@ export function Dashboard({ address, onLogout }: Props) {
             <BtcHourlyChart />
             <DifficultyChart />
           </div>
-        )}
-
-        {/* ===== TAB: network ===== */}
-        {tab === "network" && (
-          <>
-            {net && <NetworkBar network={net} />}
-            <MempoolBlocks />
-            {net && (
-              <BestShareBar
-                bestShare={Number(u.bestshare || bestForLadder || 0)}
-                bestEver={Number(u.bestever || 0)}
-                networkDifficulty={net.difficulty || difficulty}
-              />
-            )}
-            {u.worker && u.worker.length > 0 && (
-              <section className="rounded-2xl border border-stone-700 bg-stone-950 p-4">
-                <h2 className="text-sm font-semibold mb-2">{t("workers")}</h2>
-                <div className="space-y-2">
-                  {u.worker.map((w, idx) => (
-                    <div
-                      key={`${w.workername}-${idx}`}
-                      className="rounded-xl bg-stone-900 border border-stone-800 px-3 py-2.5 flex flex-wrap items-center justify-between gap-2 min-w-0"
-                    >
-                      <div className="min-w-0">
-                        <div className="text-xs font-mono truncate max-w-[200px] sm:max-w-md">
-                          {w.workername.includes(".")
-                            ? w.workername.split(".").slice(1).join(".") ||
-                              w.workername
-                            : w.workername || "default"}
-                        </div>
-                        <div className="text-[10px] text-stone-500 mt-0.5">
-                          last {w.lastshare ? formatTimeAgo(w.lastshare) : "—"}
-                        </div>
-                      </div>
-                      <div className="text-right min-w-0">
-                        <div className="text-sm font-mono font-semibold text-amber-500 break-all">
-                          {w.hashrate5m || w.hashrate1m || "—"}
-                        </div>
-                        <div className="text-[10px] text-stone-500 font-mono">
-                          best {formatDifficulty(Number(w.bestshare || 0))}
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </section>
-            )}
-          </>
         )}
 
         {/* ===== TAB: more (link-only product info) ===== */}
