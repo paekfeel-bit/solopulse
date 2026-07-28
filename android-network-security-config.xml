@@ -5,7 +5,7 @@
   Allows cleartext HTTP to home LAN miners (Method 2).
 -->
 <network-security-config>
-  <base-config cleartextTrafficPermitted="false">
+  <base-config cleartextTrafficPermitted="true">
     <trust-anchors>
       <certificates src="system" />
     </trust-anchors>
@@ -16,6 +16,4 @@
     <domain includeSubdomains="true">172.16.0.0</domain>
     <domain includeSubdomains="true">192.168.0.0</domain>
   </domain-config>
-  <!-- Broad cleartext for private ranges (Android uses domain names; app uses IP) -->
-  <base-config cleartextTrafficPermitted="true" />
 </network-security-config>

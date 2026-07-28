@@ -1,11 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Copy to: android/app/src/main/res/xml/network_security_config.xml
-  after: npx cap add android
-  Allows cleartext HTTP to home LAN miners (Method 2).
+  Method 2: allow cleartext HTTP to home LAN miners (NerdQAxe / AxeOS).
+  WebView can reach http://192.168.x.x without Mixed Content block.
 -->
 <network-security-config>
-  <base-config cleartextTrafficPermitted="false">
+  <base-config cleartextTrafficPermitted="true">
     <trust-anchors>
       <certificates src="system" />
     </trust-anchors>
@@ -16,6 +15,4 @@
     <domain includeSubdomains="true">172.16.0.0</domain>
     <domain includeSubdomains="true">192.168.0.0</domain>
   </domain-config>
-  <!-- Broad cleartext for private ranges (Android uses domain names; app uses IP) -->
-  <base-config cleartextTrafficPermitted="true" />
 </network-security-config>

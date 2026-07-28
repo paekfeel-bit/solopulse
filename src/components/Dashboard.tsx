@@ -18,7 +18,6 @@ import {
   getStoredPool,
   setStoredPool,
   rememberLastAddress,
-  normalizeDeviceHost,
 } from "@/lib/history";
 import { POOL_OPTIONS } from "@/lib/pools";
 import { useLiveOdds } from "@/hooks/useLiveOdds";
@@ -168,7 +167,6 @@ export function Dashboard({ address, onLogout }: Props) {
 
   // Force-sync device IP from storage (first paint / AddressGate race)
   useEffect(() => {
-    setDeviceIpDraft(getStoredDeviceIp());
     const ip = getStoredDeviceIp();
     if (ip && ip !== deviceHr.ip) deviceHr.setIp(ip);
     // eslint-disable-next-line react-hooks/exhaustive-deps
