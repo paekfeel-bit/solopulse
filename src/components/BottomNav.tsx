@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 
 export type DashTab = "home" | "engine" | "odds" | "chart" | "bridge";
 
@@ -42,10 +42,10 @@ export function BottomNav({
               key={t.id}
               type="button"
               onClick={() => onChange(t.id)}
-              className={`relative flex flex-col items-center justify-center gap-0.5 min-h-[3.25rem] rounded-xl transition-colors ${
+              className={`sp-tool-glow relative flex flex-col items-center justify-center gap-0.5 min-h-[3.25rem] rounded-xl border border-transparent touch-manipulation ${
                 active
-                  ? "bg-amber-500/15 text-amber-400"
-                  : "text-[var(--muted)] hover:text-[var(--muted)]"
+                  ? "bg-amber-500/20 text-amber-400 border-amber-500/40 shadow-[0_0_12px_1px_rgba(250,204,21,0.35)]"
+                  : "text-[var(--muted)]"
               }`}
             >
               <span className="text-lg leading-none" aria-hidden>
@@ -62,7 +62,7 @@ export function BottomNav({
                 />
               )}
               {active && (
-                <span className="absolute -top-px left-1/2 -translate-x-1/2 w-6 h-0.5 rounded-full bg-amber-500" />
+                <span className="absolute -top-px left-1/2 -translate-x-1/2 w-6 h-0.5 rounded-full bg-amber-500 shadow-[0_0_8px_2px_rgba(250,204,21,0.7)]" />
               )}
             </button>
           );
