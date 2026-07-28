@@ -1,12 +1,11 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 /**
- * Retro car-dashboard analog gauge.
- * - Smooth spring needle (sensitive to 0.1 unit target changes)
- * - Optional micro live wobble so it never looks frozen between polls
- * - Digital readout at 0.1 resolution (or finer for small values)
+ * Ferrari-inspired analog cluster gauge.
+ * Black carbon face · yellow/white ticks · red danger arc · yellow-red needle.
+ * Spring needle + optional micro live wobble (0.1 unit sensitivity).
  */
 export function AnalogGauge({
   value,
@@ -16,12 +15,9 @@ export function AnalogGauge({
   unit = "",
   warnAt,
   dangerAt,
-  size = 140,
-  /** Keep needle slightly alive between data ticks */
+  size = 148,
   live = true,
-  /** Decimal places for readout (default: 1 for 0.1 sensitivity) */
   decimals,
-  /** Auto-zoom scale around current value for finer needle motion */
   sensitiveScale = false,
 }: {
   value: number;
@@ -36,6 +32,7 @@ export function AnalogGauge({
   decimals?: number;
   sensitiveScale?: boolean;
 }) {
+  const uid = useId().replace(/:/g, "");
   const target = Number.isFinite(value) ? value : min;
   const [display, setDisplay] = useState(target);
   const displayRef = useRef(target);
@@ -43,42 +40,34 @@ export function AnalogGauge({
   const velRef = useRef(0);
   const rafRef = useRef(0);
 
-  // Track target immediately
   useEffect(() => {
     targetRef.current = target;
   }, [target]);
 
-  // Spring toward target + optional micro wobble (rAF ~60fps)
   useEffect(() => {
     let alive = true;
     const tick = () => {
       if (!alive) return;
       const t = targetRef.current;
       let cur = displayRef.current;
-      // critically-damped-ish spring (snappy, settles on 0.1 deltas)
-      const stiffness = 0.22;
-      const damping = 0.72;
+      const stiffness = 0.24;
+      const damping = 0.7;
       let vel = velRef.current;
-      const force = (t - cur) * stiffness;
-      vel = (vel + force) * damping;
-      // snap when extremely close so 0.1 steps don't ring forever
+      vel = (vel + (t - cur) * stiffness) * damping;
       if (Math.abs(t - cur) < 0.0005 && Math.abs(vel) < 0.0005) {
         cur = t;
         vel = 0;
       } else {
         cur += vel;
       }
-      // live micro-wobble: ±~0.08 around settled value (feels analog, still follows 0.1)
       let shown = cur;
       if (live && t > min) {
         const wobbleAmp = Math.max(0.04, Math.min(0.12, Math.abs(t) * 0.00002 + 0.05));
         const phase = Date.now() / 1000;
-        // multi-frequency for less regular "machine" feel
         const wobble =
           Math.sin(phase * 2.7) * wobbleAmp * 0.55 +
           Math.sin(phase * 5.1 + 1.3) * wobbleAmp * 0.35 +
           Math.sin(phase * 11.0) * wobbleAmp * 0.15;
-        // only wobble once near target so big jumps still animate cleanly
         if (Math.abs(t - cur) < Math.max(0.5, Math.abs(t) * 0.002)) {
           shown = cur + wobble;
         }
@@ -95,21 +84,17 @@ export function AnalogGauge({
     };
   }, [live, min]);
 
-  // Adaptive scale: zoom around value so 0.1 units move the needle more
   const { scaleMin, scaleMax } = useMemo(() => {
     if (!sensitiveScale || !(target > 0)) {
       return { scaleMin: min, scaleMax: Math.max(max, min + 1e-6) };
     }
-    // window ±12% around value (at least ±8 units for hashrate GH/s feel)
     const half = Math.max(Math.abs(target) * 0.12, (max - min) * 0.08, 8);
     const lo = Math.max(min, target - half);
     let hi = Math.max(lo + 1e-6, target + half);
-    // never exceed original max by too much
     hi = Math.min(Math.max(hi, max * 0.5), Math.max(max, target * 1.2));
     return { scaleMin: lo, scaleMax: hi };
   }, [sensitiveScale, target, min, max]);
 
-  // Smooth scale edges so zoom doesn't jump
   const [animMin, setAnimMin] = useState(scaleMin);
   const [animMax, setAnimMax] = useState(scaleMax);
   useEffect(() => {
@@ -123,35 +108,45 @@ export function AnalogGauge({
   const v = display;
   const span = animMax - animMin || 1;
   const pct = Math.max(0, Math.min(1, (v - animMin) / span));
-  // sweep from -120deg to +120deg
-  const angle = -120 + pct * 240;
-  const color =
-    dangerAt != null && target >= dangerAt
-      ? "#ef4444"
-      : warnAt != null && target >= warnAt
-        ? "#f59e0b"
-        : "#34d399";
+  // Ferrari cluster: ~240° sweep, redline on the right
+  const START = -125;
+  const SWEEP = 250;
+  const angle = START + pct * SWEEP;
 
-  const r = size / 2 - 10;
+  const warnPct =
+    warnAt != null
+      ? Math.max(0, Math.min(1, (warnAt - animMin) / span))
+      : 0.72;
+  const dangerPct =
+    dangerAt != null
+      ? Math.max(0, Math.min(1, (dangerAt - animMin) / span))
+      : 0.85;
+
+  const r = size / 2 - 12;
   const cx = size / 2;
-  const cy = size / 2 + 4;
+  const cy = size / 2 + 6;
   const toXY = (deg: number, rad = r) => {
     const a = ((deg - 90) * Math.PI) / 180;
     return [cx + rad * Math.cos(a), cy + rad * Math.sin(a)];
   };
+  const arcPath = (fromDeg: number, toDeg: number, rad: number) => {
+    const [x1, y1] = toXY(fromDeg, rad);
+    const [x2, y2] = toXY(toDeg, rad);
+    const large = toDeg - fromDeg > 180 ? 1 : 0;
+    return `M ${x1} ${y1} A ${rad} ${rad} 0 ${large} 1 ${x2} ${y2}`;
+  };
 
-  const start = toXY(-120);
-  const end = toXY(120);
-  const arc = `M ${start[0]} ${start[1]} A ${r} ${r} 0 0 1 ${end[0]} ${end[1]}`;
+  const track = arcPath(START, START + SWEEP, r - 4);
+  const greenEnd = START + Math.min(warnPct, 1) * SWEEP;
+  const yellowEnd = START + Math.min(Math.max(dangerPct, warnPct), 1) * SWEEP;
+  const redEnd = START + SWEEP;
 
   const dec =
     decimals != null
       ? decimals
-      : Math.abs(target) >= 1000
-        ? 1
-        : Math.abs(target) >= 100
-          ? 1
-          : 1;
+      : Math.abs(target) >= 10000
+        ? 0
+        : 1;
 
   const text =
     Number.isFinite(v)
@@ -160,48 +155,147 @@ export function AnalogGauge({
         : v.toFixed(dec)
       : "—";
 
+  const needleColor =
+    dangerAt != null && target >= dangerAt
+      ? "#ef4444"
+      : warnAt != null && target >= warnAt
+        ? "#fbbf24"
+        : "#facc15";
+
   return (
     <div className="flex flex-col items-center select-none">
-      <svg width={size} height={size * 0.78} viewBox={`0 0 ${size} ${size * 0.82}`}>
+      <svg
+        width={size}
+        height={size * 0.82}
+        viewBox={`0 0 ${size} ${size * 0.86}`}
+        className="drop-shadow-[0_4px_12px_rgba(0,0,0,0.45)]"
+      >
         <defs>
-          <radialGradient id={`bezel-${label}`} cx="50%" cy="45%" r="60%">
-            <stop offset="0%" stopColor="#3f3f46" />
-            <stop offset="70%" stopColor="#18181b" />
-            <stop offset="100%" stopColor="#09090b" />
+          {/* Carbon / piano black face */}
+          <radialGradient id={`face-${uid}`} cx="42%" cy="38%" r="70%">
+            <stop offset="0%" stopColor="#2a2a2e" />
+            <stop offset="45%" stopColor="#121214" />
+            <stop offset="100%" stopColor="#050505" />
           </radialGradient>
-          <filter id={`glow-${label}`}>
-            <feGaussianBlur stdDeviation="1.5" result="b" />
+          <linearGradient id={`bezel-${uid}`} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#6b7280" />
+            <stop offset="35%" stopColor="#1f1f23" />
+            <stop offset="70%" stopColor="#9ca3af" />
+            <stop offset="100%" stopColor="#111113" />
+          </linearGradient>
+          <linearGradient id={`rim-y-${uid}`} x1="0" y1="0" x2="1" y2="0">
+            <stop offset="0%" stopColor="#a16207" />
+            <stop offset="50%" stopColor="#facc15" />
+            <stop offset="100%" stopColor="#a16207" />
+          </linearGradient>
+          <filter id={`glow-${uid}`} x="-40%" y="-40%" width="180%" height="180%">
+            <feGaussianBlur stdDeviation="2.2" result="b" />
             <feMerge>
               <feMergeNode in="b" />
               <feMergeNode in="SourceGraphic" />
             </feMerge>
           </filter>
+          <filter id={`soft-${uid}`}>
+            <feGaussianBlur stdDeviation="1.2" />
+          </filter>
         </defs>
+
+        {/* Outer chrome bezel */}
         <circle
           cx={cx}
           cy={cy}
-          r={r + 6}
-          fill={`url(#bezel-${label})`}
-          stroke="#52525b"
+          r={r + 9}
+          fill={`url(#bezel-${uid})`}
+          stroke="#0a0a0a"
+          strokeWidth="1"
+        />
+        {/* Yellow pulse ring (Ferrari yellow accent) */}
+        <circle
+          cx={cx}
+          cy={cy}
+          r={r + 7.2}
+          fill="none"
+          stroke={`url(#rim-y-${uid})`}
+          strokeWidth="1.4"
+          opacity="0.85"
+        />
+        {/* Inner black face */}
+        <circle
+          cx={cx}
+          cy={cy}
+          r={r + 1}
+          fill={`url(#face-${uid})`}
+          stroke="#1c1917"
           strokeWidth="2"
         />
-        <circle cx={cx} cy={cy} r={r} fill="#0c0a09" stroke="#44403c" strokeWidth="1" />
-        <path d={arc} fill="none" stroke="#292524" strokeWidth="8" strokeLinecap="round" />
-        <path
-          d={arc}
+        {/* Subtle inner vignette ring */}
+        <circle
+          cx={cx}
+          cy={cy}
+          r={r - 2}
           fill="none"
-          stroke={color}
-          strokeWidth="4"
-          strokeLinecap="round"
-          strokeDasharray={`${pct * 250} 250`}
-          filter={`url(#glow-${label})`}
-          opacity={0.9}
-          style={{ transition: "stroke 0.25s ease" }}
+          stroke="#000"
+          strokeWidth="6"
+          opacity="0.35"
         />
-        {Array.from({ length: 13 }).map((_, i) => {
-          const d = -120 + (i / 12) * 240;
-          const [x1, y1] = toXY(d, r - 2);
-          const [x2, y2] = toXY(d, r - (i % 2 === 0 ? 12 : 7));
+
+        {/* Track base */}
+        <path
+          d={track}
+          fill="none"
+          stroke="#1c1917"
+          strokeWidth="7"
+          strokeLinecap="butt"
+        />
+        {/* Green / normal zone */}
+        <path
+          d={arcPath(START, greenEnd, r - 4)}
+          fill="none"
+          stroke="#22c55e"
+          strokeWidth="5"
+          strokeLinecap="butt"
+          opacity="0.75"
+        />
+        {/* Yellow warn */}
+        {yellowEnd > greenEnd && (
+          <path
+            d={arcPath(greenEnd, yellowEnd, r - 4)}
+            fill="none"
+            stroke="#eab308"
+            strokeWidth="5"
+            strokeLinecap="butt"
+            opacity="0.9"
+          />
+        )}
+        {/* Redline */}
+        {redEnd > yellowEnd && (
+          <path
+            d={arcPath(yellowEnd, redEnd, r - 4)}
+            fill="none"
+            stroke="#dc2626"
+            strokeWidth="6"
+            strokeLinecap="butt"
+            opacity="0.95"
+            filter={`url(#glow-${uid})`}
+          />
+        )}
+        {/* Value arc (thin yellow) */}
+        <path
+          d={arcPath(START, START + pct * SWEEP, r - 4)}
+          fill="none"
+          stroke="#fde047"
+          strokeWidth="2"
+          strokeLinecap="round"
+          opacity="0.55"
+        />
+
+        {/* Ticks — Ferrari style dense marks */}
+        {Array.from({ length: 26 }).map((_, i) => {
+          const d = START + (i / 25) * SWEEP;
+          const major = i % 5 === 0;
+          const [x1, y1] = toXY(d, r - 8);
+          const [x2, y2] = toXY(d, r - (major ? 18 : 12));
+          const hot = d >= yellowEnd;
           return (
             <line
               key={i}
@@ -209,47 +303,71 @@ export function AnalogGauge({
               y1={y1}
               x2={x2}
               y2={y2}
-              stroke="#a8a29e"
-              strokeWidth={i % 2 === 0 ? 1.5 : 1}
-              opacity={0.7}
+              stroke={hot ? "#f87171" : major ? "#fafafa" : "#a8a29e"}
+              strokeWidth={major ? 1.8 : 1}
+              opacity={major ? 0.95 : 0.55}
             />
           );
         })}
-        {/* Needle rotates via transform — GPU smooth, reacts to 0.1 steps */}
-        <g transform={`rotate(${angle} ${cx} ${cy})`}>
-          <line
-            x1={cx}
-            y1={cy + 6}
-            x2={cx}
-            y2={cy - (r - 10)}
-            stroke={color}
-            strokeWidth="2.5"
-            strokeLinecap="round"
-          />
+
+        {/* Needle shadow */}
+        <g transform={`rotate(${angle} ${cx} ${cy})`} opacity="0.35">
           <polygon
-            points={`${cx - 2},${cy - (r - 14)} ${cx + 2},${cy - (r - 14)} ${cx},${cy - (r - 6)}`}
-            fill={color}
-            opacity={0.95}
+            points={`${cx - 2.2},${cy + 10} ${cx + 2.2},${cy + 10} ${cx},${cy - (r - 16)}`}
+            fill="#000"
+            filter={`url(#soft-${uid})`}
           />
         </g>
-        <circle cx={cx} cy={cy} r={5.5} fill="#fafaf9" stroke={color} strokeWidth="2" />
+        {/* Ferrari needle — yellow/red blade */}
+        <g transform={`rotate(${angle} ${cx} ${cy})`}>
+          <polygon
+            points={`${cx - 2},${cy + 12} ${cx + 2},${cy + 12} ${cx + 0.6},${cy - (r - 14)} ${cx - 0.6},${cy - (r - 14)}`}
+            fill={needleColor}
+            filter={`url(#glow-${uid})`}
+          />
+          <line
+            x1={cx}
+            y1={cy + 8}
+            x2={cx}
+            y2={cy - (r - 18)}
+            stroke="#fff7ed"
+            strokeWidth="0.6"
+            opacity="0.7"
+          />
+        </g>
+        {/* Hub */}
+        <circle cx={cx} cy={cy} r={8} fill="#0a0a0a" stroke="#facc15" strokeWidth="1.5" />
+        <circle cx={cx} cy={cy} r={3.5} fill="#fde047" opacity="0.95" />
+
+        {/* Digital LCD strip */}
+        <rect
+          x={cx - 32}
+          y={cy + 18}
+          width={64}
+          height={18}
+          rx={3}
+          fill="#050505"
+          stroke="#292524"
+          strokeWidth="1"
+        />
         <text
           x={cx}
-          y={cy + 24}
+          y={cy + 31}
           textAnchor="middle"
-          fill="#e7e5e4"
-          fontSize="12"
+          fill="#fde047"
+          fontSize="11"
           fontFamily="ui-monospace, monospace"
           fontWeight="700"
+          letterSpacing="0.5"
         >
           {text}
-          <tspan fill="#a8a29e" fontSize="9">
+          <tspan fill="#a8a29e" fontSize="7">
             {" "}
             {unit}
           </tspan>
         </text>
       </svg>
-      <div className="text-[10px] uppercase tracking-[0.2em] text-stone-400 -mt-1">
+      <div className="text-[9px] uppercase tracking-[0.28em] text-amber-600/90 font-semibold -mt-0.5">
         {label}
       </div>
     </div>

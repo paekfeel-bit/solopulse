@@ -56,6 +56,7 @@ import { BtcDisclaimer } from "./BtcDisclaimer";
 import { LightningTip } from "./LightningTip";
 import { BottomNav, type DashTab } from "./BottomNav";
 import { BridgePanel } from "./BridgePanel";
+import { PulseLaser, PulseLaserFrame } from "./PulseLaser";
 
 interface Props {
   address: string;
@@ -377,7 +378,9 @@ export function Dashboard({ address, onLogout }: Props) {
     "inline-flex items-center justify-center h-8 px-2.5 text-[11px] rounded-lg border border-[var(--border)] text-[var(--muted)] shrink-0 leading-none";
 
   return (
-    <div className="min-h-dvh pb-[calc(4.5rem+env(safe-area-inset-bottom))] bg-[var(--bg)] text-[var(--fg)] overflow-x-clip">
+    <div className="relative min-h-dvh pb-[calc(4.5rem+env(safe-area-inset-bottom))] bg-[var(--bg)] text-[var(--fg)] overflow-x-clip">
+      {/* SoloPulse brand: yellow laser once around the viewport */}
+      <PulseLaserFrame />
       <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--header)] backdrop-blur-md pt-[env(safe-area-inset-top)]">
         <div className="max-w-3xl mx-auto px-3 py-2 space-y-2">
           {/* Row 1: brand + status */}
@@ -486,11 +489,12 @@ export function Dashboard({ address, onLogout }: Props) {
               : "BOARD OFFLINE · source engine idle · connect IP / auto-scan / start-bridge.bat"}
         </div>
 
-        {/* Analog instrument cluster */}
-        <section className="rounded-2xl border border-[var(--border)] bg-gradient-to-b from-[var(--card)] to-[var(--bg)] p-3 sm:p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
-          <div className="flex items-center justify-between gap-2 mb-2">
-            <div className="text-[10px] uppercase tracking-[0.28em] text-amber-600 font-semibold">
-              SoloPulse · HOME · GAUGES + NET
+        {/* Ferrari-style instrument cluster + pulse laser rim */}
+        <section className="relative rounded-2xl border border-[var(--border)] bg-gradient-to-b from-zinc-950 via-zinc-900 to-black p-3 sm:p-4 shadow-[inset_0_1px_0_rgba(250,204,21,0.08),0_8px_32px_rgba(0,0,0,0.35)] overflow-hidden">
+          <PulseLaser intervalSec={6.5} />
+          <div className="relative z-[1] flex items-center justify-between gap-2 mb-2">
+            <div className="text-[10px] uppercase tracking-[0.28em] text-amber-500 font-semibold">
+              SoloPulse · FERRARI CLUSTER
             </div>
             <div
               className={`text-[10px] font-mono px-2 py-0.5 rounded border ${

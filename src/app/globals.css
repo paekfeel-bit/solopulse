@@ -133,6 +133,119 @@ select {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* ── SoloPulse yellow laser: one lap + flash, then pause ── */
+@keyframes sp-pulse-laser-spin {
+  0% {
+    opacity: 0;
+    transform: rotate(0deg);
+  }
+  3% {
+    opacity: 1;
+  }
+  40% {
+    opacity: 1;
+    transform: rotate(360deg);
+  }
+  46% {
+    opacity: 0;
+    transform: rotate(360deg);
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes sp-pulse-flash {
+  0%,
+  38% {
+    opacity: 0;
+    box-shadow: inset 0 0 0 0 transparent;
+  }
+  42% {
+    opacity: 1;
+    box-shadow:
+      inset 0 0 48px 2px rgba(253, 224, 71, 0.4),
+      0 0 32px 6px rgba(250, 204, 21, 0.28);
+  }
+  50% {
+    opacity: 0;
+    box-shadow: inset 0 0 0 0 transparent;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+@keyframes sp-pulse-frame-spin {
+  0% {
+    opacity: 0;
+    transform: rotate(0deg);
+  }
+  2% {
+    opacity: 0.9;
+  }
+  36% {
+    opacity: 0.9;
+    transform: rotate(360deg);
+  }
+  42% {
+    opacity: 0;
+    transform: rotate(360deg);
+  }
+  100% {
+    opacity: 0;
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes sp-pulse-frame-flash {
+  0%,
+  34% {
+    opacity: 0;
+  }
+  38% {
+    opacity: 1;
+    background: radial-gradient(
+      ellipse 85% 55% at 50% 40%,
+      rgba(253, 224, 71, 0.14),
+      transparent 68%
+    );
+  }
+  46% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 0;
+  }
+}
+
+.sp-pulse-laser {
+  animation: sp-pulse-laser-spin var(--sp-pulse-period, 6.5s) linear infinite;
+}
+
+.sp-pulse-flash {
+  animation: sp-pulse-flash var(--sp-pulse-period, 6.5s) linear infinite;
+}
+
+.sp-pulse-frame {
+  animation: sp-pulse-frame-spin 8s linear infinite;
+}
+
+.sp-pulse-frame-flash {
+  animation: sp-pulse-frame-flash 8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sp-pulse-laser,
+  .sp-pulse-flash,
+  .sp-pulse-frame,
+  .sp-pulse-frame-flash {
+    animation: none !important;
+    opacity: 0 !important;
+  }
+}
+
 @keyframes fadeInScale {
   from {
     opacity: 0;
