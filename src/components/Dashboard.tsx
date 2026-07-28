@@ -805,9 +805,10 @@ export function Dashboard({ address, onLogout }: Props) {
                 </div>
               </div>
 
-              {/* Bridge is core — always on home, not removed */}
+              {/* Setup UI only while offline — auto-hides when bridge LIVE */}
               <BridgePanel
                 compact
+                hideWhenLive
                 locale={locale}
                 address={address}
                 boardLive={boardLive}
@@ -1079,42 +1080,44 @@ export function Dashboard({ address, onLogout }: Props) {
               staleMs={deviceAgeMs ?? agent.staleMs}
               agentStatus={agent.agentStatus}
             />
-            <section className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4 space-y-2 text-[11px] text-[var(--muted)] leading-relaxed">
-              <h3 className="text-sm font-semibold text-[var(--fg)]">
-                {locale === "ko"
-                  ? "왜 사이트에 브리지가 필요한가"
-                  : "Why the bridge belongs in the product"}
-              </h3>
-              <p>
-                {locale === "ko"
-                  ? "웹(Railway)은 집 사설 IP(172/192.168)에 직접 들어갈 수 없습니다. 브리지가 마이너를 읽고 사이트로 밀어 줍니다. 풀 통계만 볼 때는 브리지 없이도 되지만, 보드 실측·소스엔진 컨택에는 브리지가 필수입니다."
-                  : "The cloud site cannot open private LAN IPs. The bridge reads the miner and pushes into the site. Pool-only viewing works without it; live board + source engine require the bridge."}
-              </p>
-              <p className="font-mono text-[10px] text-[var(--fg)]0 bg-[var(--bg)] rounded-lg p-2">
-                [NerdQAxe] ←LAN→ [start-bridge.bat] ←WSS→ [solopulse.railway] ←HTTPS→ [폰/PC]
-              </p>
-              <button
-                type="button"
-                onClick={() => void agent.refresh()}
-                className="w-full rounded-xl bg-amber-500 text-stone-950 font-bold text-sm py-3"
+            {!boardLive && (
+              <section className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4 space-y-2 text-[11px] text-[var(--muted)] leading-relaxed">
+                <h3 className="text-sm font-semibold text-[var(--fg)]">
+                  {locale === "ko"
+                    ? "왜 사이트에 브리지가 필요한가"
+                    : "Why the bridge belongs in the product"}
+                </h3>
+                <p>
+                  {locale === "ko"
+                    ? "웹은 집 사설 IP에 직접 들어갈 수 없습니다. 브리지가 마이너를 읽어 사이트로 밀어 줍니다. 연동되면 다운로드 안내는 자동으로 사라집니다."
+                    : "Cloud cannot open private LAN IPs. Bridge pushes miner data in. When linked, download setup hides automatically."}
+                </p>
+                <p className="font-mono text-[10px] text-[var(--muted)] bg-[var(--bg)] rounded-lg p-2">
+                  [NerdQAxe] ←LAN→ [start-bridge.bat] ←WSS→ [Railway] ←HTTPS→ [폰/PC]
+                </p>
+              </section>
+            )}
+            <button
+              type="button"
+              onClick={() => void agent.refresh()}
+              className="w-full rounded-xl bg-amber-500 text-stone-950 font-bold text-sm py-3"
+            >
+              {locale === "ko" ? "브리지 상태 새로고침" : "Refresh bridge status"}
+            </button>
+            <div className="flex flex-wrap justify-center gap-2 pt-1">
+              <a
+                href="https://x.com/medbedeee"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-4 py-2 text-xs text-[var(--muted)]"
               >
-                {locale === "ko" ? "브리지 상태 새로고침" : "Refresh bridge status"}
-              </button>
-              <div className="flex flex-wrap justify-center gap-2 pt-1">
-                <a
-                  href="https://x.com/medbedeee"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-4 py-2 text-xs text-[var(--muted)]"
-                >
-                  𝕏 {t("feedback")}
-                </a>
-                <LightningTip variant="pill" />
-              </div>
-              <p className="text-center text-[10px] text-[var(--muted)]">
-                <BtcDisclaimer className="align-middle" />
-              </p>
-            </section>
+                𝕏 {t("feedback")}
+              </a>
+              <LightningTip variant="pill" />
+            </div>
+            <p className="text-center text-[10px] text-[var(--muted)]">
+              <BtcDisclaimer className="align-middle" />
+            </p>
           </div>
         )}
       </main>
