@@ -34,21 +34,24 @@ export function EngineCore({
   const cx = size / 2;
   const cy = size / 2;
 
-  // Six method nodes around core
+  // Six method nodes on a shared circle (same polar system as rings)
+  // angle 0° = top; nodes sit ON the consensus-adjacent orbit so beams meet cleanly
+  const NODE_R = 92;
   const nodes = useMemo(
     () =>
       methods.map((m, i) => {
-        const ang = -90 + (i * 360) / methods.length;
-        const a = (ang * Math.PI) / 180;
-        const r = 92;
+        const n = Math.max(1, methods.length);
+        // 0° at top (12 o'clock), clockwise
+        const angDeg = -90 + (i * 360) / n;
+        const a = (angDeg * Math.PI) / 180;
         return {
           m,
-          x: cx + r * Math.cos(a - Math.PI / 2),
-          y: cy + r * Math.sin(a - Math.PI / 2),
+          x: cx + NODE_R * Math.cos(a),
+          y: cy + NODE_R * Math.sin(a),
         };
       }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [methods.map((m) => m.supportsConclusion).join(",")]
+    [methods.map((m) => `${m.id}:${m.supportsConclusion.toFixed(3)}`).join("|"), cx, cy]
   );
 
   const ringDash = 2 * Math.PI * 70;

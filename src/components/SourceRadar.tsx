@@ -1,21 +1,27 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { SourceContact, SourceStep } from "@/lib/sourceContact";
 import { useI18n, type Locale } from "@/lib/i18n";
 
 /**
  * Real-data radar for success-source contact.
- * All motion is driven by live step scores / last-share age / hashrate — nothing random.
+ * Geometry: regular n-gon axes share ONE radius system with the outer ring
+ * so vertices at score=1 sit exactly on the contact circle.
  */
 
 function pick(locale: Locale, o: { ko: string; en: string; ja: string }) {
   return o[locale] || o.en;
 }
 
+/** Angle 0° = top (12 o'clock), clockwise positive for radar axes */
 function polar(cx: number, cy: number, r: number, angleDeg: number) {
   const a = ((angleDeg - 90) * Math.PI) / 180;
   return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) };
+}
+
+function axisAngle(i: number, n: number, startAngle = 0) {
+  return startAngle + (i * 360) / n;
 }
 
 function polygonPoints(
@@ -27,8 +33,8 @@ function polygonPoints(
   const n = radii.length;
   return radii
     .map((r, i) => {
-      const p = polar(cx, cy, r, startAngle + (i * 360) / n);
-      return `${p.x.toFixed(2)},${p.y.toFixed(2)}`;
+      const p = polar(cx, cy, r, axisAngle(i, n, startAngle));
+      return `${p.x.toFixed(3)},${p.y.toFixed(3)}`;
     })
     .join(" ");
 }
@@ -43,7 +49,6 @@ export function SourceRadar({
   lastShareUnix: number;
 }) {
   const { locale } = useI18n();
-  // 1s tick so "last share age" and online arc breathe from real clock
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
@@ -53,32 +58,59 @@ export function SourceRadar({
   const lastAge =
     lastShareUnix > 0 ? Math.max(0, now / 1000 - lastShareUnix) : 9999;
 
-  // Real hash flow speed: board TH/s → CSS duration (faster when more HR)
   const th = hashrateHs / 1e12;
   const flowSec = Math.max(0.8, Math.min(6, 8 / Math.max(0.3, th)));
-
-  // Online freshness 0-1 from real last-share age
-  const freshness = lastAge < 30 ? 1 : lastAge < 120 ? 0.7 : lastAge < 600 ? 0.35 : 0.1;
+  const freshness =
+    lastAge < 30 ? 1 : lastAge < 120 ? 0.7 : lastAge < 600 ? 0.35 : 0.1;
 
   const size = 220;
   const cx = size / 2;
   const cy = size / 2;
-  const maxR = 88;
+
+  /**
+   * Unified geometry:
+   * - outer ring centerline = R_RING
+   * - polygon max radius = R_RING (vertices touch ring when score=1)
+   * - stroke half-widths kept in mind for visual tangency
+   */
+  const R_RING = 92;
+  const RING_STROKE = 5;
+  // Vertices sit on ring inner face so fill/stroke doesn't spill outside ring
+  const R_MAX = R_RING - RING_STROKE / 2;
+  const R_MIN = 20;
+  const START = 0; // first axis at top
 
   const steps = contact.steps;
-  const radii = steps.map((s) => 18 + s.score * (maxR - 18));
-  const poly = polygonPoints(cx, cy, radii);
-  const grid = [0.33, 0.66, 1].map((f) =>
-    polygonPoints(
-      cx,
-      cy,
-      steps.map(() => 18 + f * (maxR - 18))
-    )
+  const n = Math.max(3, steps.length);
+
+  const radii = useMemo(
+    () => steps.map((s) => R_MIN + Math.max(0, Math.min(1, s.score)) * (R_MAX - R_MIN)),
+    [steps]
   );
 
-  // Arc dash for overall — real percentage
-  const circumference = 2 * Math.PI * 96;
-  const dash = (contact.overall / 100) * circumference;
+  const poly = useMemo(
+    () => polygonPoints(cx, cy, radii, START),
+    [cx, cy, radii]
+  );
+
+  // Regular grid polygons at fixed fractions of R_MAX (same axes as data poly)
+  const grid = useMemo(
+    () =>
+      [1 / 3, 2 / 3, 1].map((f) => {
+        const rr = R_MIN + f * (R_MAX - R_MIN);
+        return polygonPoints(
+          cx,
+          cy,
+          Array.from({ length: n }, () => rr),
+          START
+        );
+      }),
+    [cx, cy, n]
+  );
+
+  // Circumference must use same R_RING as the drawn circle
+  const circumference = 2 * Math.PI * R_RING;
+  const dash = (Math.max(0, Math.min(100, contact.overall)) / 100) * circumference;
 
   return (
     <div className="relative w-full flex flex-col items-center">
@@ -99,25 +131,25 @@ export function SourceRadar({
           </linearGradient>
         </defs>
 
-        {/* Outer ring — overall contact */}
+        {/* Outer contact ring — same R as polygon max */}
         <circle
           cx={cx}
           cy={cy}
-          r={96}
+          r={R_RING}
           fill="none"
           stroke="var(--border)"
-          strokeWidth="6"
+          strokeWidth={RING_STROKE}
           opacity="0.5"
         />
         <circle
           cx={cx}
           cy={cy}
-          r={96}
+          r={R_RING}
           fill="none"
           stroke="url(#srcStroke)"
-          strokeWidth="6"
+          strokeWidth={RING_STROKE}
           strokeLinecap="round"
-          strokeDasharray={`${dash} ${circumference - dash}`}
+          strokeDasharray={`${dash} ${Math.max(0, circumference - dash)}`}
           transform={`rotate(-90 ${cx} ${cy})`}
           className="transition-all duration-700"
           style={{
@@ -128,7 +160,19 @@ export function SourceRadar({
           }}
         />
 
-        {/* Grid hexes */}
+        {/* Reference circle at R_MAX (exact vertex orbit) — faint guide */}
+        <circle
+          cx={cx}
+          cy={cy}
+          r={R_MAX}
+          fill="none"
+          stroke="var(--border)"
+          strokeWidth="0.75"
+          opacity="0.35"
+          strokeDasharray="2 4"
+        />
+
+        {/* Grid regular n-gons (same axes) */}
         {grid.map((g, i) => (
           <polygon
             key={i}
@@ -136,45 +180,60 @@ export function SourceRadar({
             fill="none"
             stroke="var(--border)"
             strokeWidth="1"
-            opacity={0.5}
+            opacity={0.45 + i * 0.08}
           />
         ))}
 
-        {/* Axes */}
+        {/* Axes: center → ring (full R_MAX so tips meet vertex orbit / touch ring) */}
         {steps.map((_, i) => {
-          const p = polar(cx, cy, maxR, (i * 360) / steps.length);
+          const tip = polar(cx, cy, R_MAX, axisAngle(i, n, START));
           return (
             <line
               key={i}
               x1={cx}
               y1={cy}
-              x2={p.x}
-              y2={p.y}
+              x2={tip.x}
+              y2={tip.y}
               stroke="var(--border)"
               strokeWidth="1"
-              opacity="0.4"
+              opacity="0.45"
             />
           );
         })}
 
-        {/* Live polygon from real step scores */}
+        {/* Live polygon — vertices on same polar axes */}
         <polygon
           points={poly}
           fill="url(#srcFill)"
           stroke="#fbbf24"
           strokeWidth="2"
+          strokeLinejoin="round"
           className="transition-all duration-700"
-          style={{
-            opacity: 0.35 + freshness * 0.45,
-          }}
+          style={{ opacity: 0.35 + freshness * 0.45 }}
         />
 
-        {/* Vertices — pulse when step is ON (real status) */}
+        {/* Vertices + contact dots on axes */}
         {steps.map((s, i) => {
-          const p = polar(cx, cy, radii[i], (i * 360) / steps.length);
+          const ang = axisAngle(i, n, START);
+          const p = polar(cx, cy, radii[i], ang);
+          // Full-score target sits on R_MAX (touches guide + aligns with ring)
+          const tip = polar(cx, cy, R_MAX, ang);
           const on = s.status === "on";
+          const full = s.score >= 0.995;
           return (
             <g key={s.id}>
+              {/* Ring contact mark when step is full */}
+              {full && (
+                <circle
+                  cx={tip.x}
+                  cy={tip.y}
+                  r="3"
+                  fill="none"
+                  stroke="#34d399"
+                  strokeWidth="1.5"
+                  opacity="0.9"
+                />
+              )}
               {on && (
                 <circle cx={p.x} cy={p.y} r="8" fill="#10b981" opacity="0.25">
                   <animate
@@ -222,7 +281,11 @@ export function SourceRadar({
           y={cy - 2}
           textAnchor="middle"
           className="fill-[var(--fg)]"
-          style={{ fontSize: "18px", fontFamily: "ui-monospace, monospace", fontWeight: 700 }}
+          style={{
+            fontSize: "18px",
+            fontFamily: "ui-monospace, monospace",
+            fontWeight: 700,
+          }}
         >
           {contact.overall.toFixed(0)}%
         </text>
@@ -239,10 +302,12 @@ export function SourceRadar({
           {contact.overall >= 90 ? "HOT" : contact.touching ? "LIVE" : "…"}
         </text>
 
-        {/* Hash flow dots along axis 0 — count/speed from real TH/s */}
-        {Array.from({ length: Math.min(6, Math.max(2, Math.round(th))) }).map((_, i) => {
-          const p0 = polar(cx, cy, 20, 0);
-          const p1 = polar(cx, cy, maxR, 0);
+        {/* Hash flow along axis 0 (top) — same polar system */}
+        {Array.from({
+          length: Math.min(6, Math.max(2, Math.round(th) || 2)),
+        }).map((_, i) => {
+          const p0 = polar(cx, cy, R_MIN, START);
+          const p1 = polar(cx, cy, R_MAX, START);
           return (
             <circle key={i} r="2" fill="#fbbf24" opacity="0.8">
               <animate
@@ -271,7 +336,6 @@ export function SourceRadar({
         })}
       </svg>
 
-      {/* Step chips under radar */}
       <div className="w-full grid grid-cols-3 gap-1.5 mt-1">
         {steps.map((s) => (
           <StepChip key={s.id} step={s} locale={locale} />
@@ -280,10 +344,10 @@ export function SourceRadar({
 
       <p className="mt-2 text-[10px] text-[var(--muted)] text-center leading-relaxed max-w-sm">
         {locale === "ko"
-          ? `실데이터: 셰어 ${lastAge < 9999 ? `${Math.floor(lastAge)}s 전` : "—"} · ${th.toFixed(2)} TH/s · 흐름 속도 ∝ 해시레이트`
+          ? `실데이터: 셰어 ${lastAge < 9999 ? `${Math.floor(lastAge)}s 전` : "—"} · ${th.toFixed(2)} TH/s · 100% 꼭짓점 = 원 접점`
           : locale === "ja"
-            ? `実データ: シェア ${lastAge < 9999 ? `${Math.floor(lastAge)}s 前` : "—"} · ${th.toFixed(2)} TH/s · 速度∝ハッシュレート`
-            : `Live data: share ${lastAge < 9999 ? `${Math.floor(lastAge)}s ago` : "—"} · ${th.toFixed(2)} TH/s · flow ∝ hashrate`}
+            ? `実データ: シェア ${lastAge < 9999 ? `${Math.floor(lastAge)}s 前` : "—"} · ${th.toFixed(2)} TH/s`
+            : `Live: share ${lastAge < 9999 ? `${Math.floor(lastAge)}s ago` : "—"} · ${th.toFixed(2)} TH/s · 100% vertex = ring contact`}
       </p>
     </div>
   );
@@ -298,7 +362,9 @@ function StepChip({ step, locale }: { step: SourceStep; locale: Locale }) {
         : "border-[var(--border)] text-[var(--muted)]";
   return (
     <div className={`rounded-lg border px-1.5 py-1 text-center min-w-0 ${bg}`}>
-      <div className="text-[9px] font-semibold truncate">{pick(locale, step.title)}</div>
+      <div className="text-[9px] font-semibold truncate">
+        {pick(locale, step.title)}
+      </div>
       <div className="text-[10px] font-mono tabular-nums">
         {(step.score * 100).toFixed(0)}%
       </div>
