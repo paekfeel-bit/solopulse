@@ -5,17 +5,17 @@ Universal small solo mining intelligence platform.
 **Production:** https://solopulse-production.up.railway.app  
 **Device Link guide:** https://solopulse-production.up.railway.app/bridge
 
-## Product model (important)
+## Product model (link only)
+
+**Third parties (shared link): open on phone or PC — no bridge, no app download.**
 
 | Who | What they do |
 |-----|----------------|
-| **Anyone with the link** | Open site → enter BTC address → **full pool dashboard** (no install) |
-| **Anyone who wants live board** (temp, ASIC hashrate) | Same site → download **Device Link** (`.bat`) configured with *their* address → run on *their* home PC |
+| **Anyone with the link** | Browser → enter BTC address → full dashboard from **solo pool APIs** |
+| Mobile | Same link, no install |
+| PC | Same link, no install |
 
-The website **cannot** reach home miners by itself (private LAN + browser security).  
-Device Link is optional; **pool mode is the complete web product.**
-
-Multi-user isolation: `CLIENT_ID` = payout address. User A and User B never share device streams.
+Home-miner “board temp / ASIC direct” requires a local agent and is **not** part of the shared-link product.
 
 ## Architecture
 

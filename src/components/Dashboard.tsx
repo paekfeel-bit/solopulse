@@ -63,8 +63,8 @@ export function Dashboard({ address, onLogout }: Props) {
   const { t, cycleLocale, locale } = useI18n();
   const { theme, toggle } = useTheme();
   const dash = useMinerDashboard(address);
-  const deviceHr = useDeviceHashrate(true);
-  /** Multi-tenant: clientId = payout address. Bridge must use same CLIENT_ID. */
+  /** Link-only product: pool is primary. Device path optional/silent for power users. */
+  const deviceHr = useDeviceHashrate(false);
   const agent = useAgentTelemetry(true, address);
   const [tab, setTab] = useState<DashTab>("cluster");
   const [celebrateOpen, setCelebrateOpen] = useState(true);
@@ -128,14 +128,13 @@ export function Dashboard({ address, onLogout }: Props) {
     deviceHr.device != null &&
     deviceHr.device.live === false;
 
+  // Connection light = pool/API health only (never requires bridge)
   const heartbeatOk =
     dash.loading && !dash.user
       ? null
-      : deviceHsLive > 0
-        ? true
-        : dash.error && !dash.user
-          ? false
-          : !dash.error || !!dash.user;
+      : dash.error && !dash.user
+        ? false
+        : !dash.error || !!dash.user || shownHs > 0 || poolHr.displayHs > 0;
   const { status } = useOnlineStatus(heartbeatOk);
 
   const bestForLadder = Math.max(
@@ -252,22 +251,6 @@ export function Dashboard({ address, onLogout }: Props) {
       deviceHr.hasDevice ? deviceHr.refresh() : Promise.resolve(),
     ]);
   }
-
-  /**
-   * Pool-first product:
-   * - "ok" = home Device Link streaming
-   * - "idle" = optional off (NOT a hard failure — pool UI still full product)
-   * - "loading" = bridge seen but no hashrate yet
-   */
-  const deviceLinkStatus: "idle" | "loading" | "ok" | "optional" = (() => {
-    if (agent.hasLiveHashrate) return "ok";
-    if (agent.deviceOnline) return "ok";
-    if (agent.agentOnline && agent.telemetry && Number(agent.hashRateGhs) > 0)
-      return "ok";
-    if (agent.staleMs < 45_000 && agent.telemetry) return "ok";
-    if (agent.agentOnline) return "loading";
-    return "optional";
-  })();
 
   const deviceTemp =
     agent.tempC != null && Number.isFinite(agent.tempC)
@@ -428,12 +411,20 @@ export function Dashboard({ address, onLogout }: Props) {
             </div>
             <div
               className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
-                agent.agentOnline
+                shownHs > 0 || !!dash.user
                   ? "border-emerald-600/50 text-emerald-400"
-                  : "border-red-800/60 text-red-400"
+                  : dash.loading
+                    ? "border-amber-600/50 text-amber-400"
+                    : "border-stone-600 text-stone-400"
               }`}
             >
-              AGENT {agent.agentStatus}
+              {shownHs > 0 || !!dash.user
+                ? locale === "ko"
+                  ? "LIVE · 풀"
+                  : "LIVE · POOL"
+                : dash.loading
+                  ? "…"
+                  : "IDLE"}
             </div>
           </div>
           <div className="flex flex-wrap justify-around gap-2 sm:gap-4">
@@ -485,37 +476,6 @@ export function Dashboard({ address, onLogout }: Props) {
           </div>
         </section>
 
-        {/* Pool-first: device link is optional enhancement, not a broken site */}
-        {deviceLinkStatus === "optional" && (
-          <div className="text-[11px] leading-relaxed text-stone-200 bg-stone-900/80 border border-stone-700 rounded-xl px-3 py-2.5 space-y-1.5">
-            <div className="font-semibold text-emerald-400/95">
-              {locale === "ko"
-                ? "풀 모드로 정상 작동 중 (설치 불필요)"
-                : "Running in pool mode (no install needed)"}
-            </div>
-            <div className="text-[10px] text-stone-400">
-              {locale === "ko"
-                ? "웹만으로 해시·확률·차트를 볼 수 있습니다. 집 보드 실시간(온도 등)이 필요하면 Device Link를 선택 설치하세요 — 실패가 아닙니다."
-                : "Pool hashrate, odds, and charts work from the link alone. Optional Device Link adds live board stats — not an error."}
-            </div>
-            <div className="flex flex-wrap gap-2 pt-0.5">
-              <button
-                type="button"
-                onClick={() => setTab("agent")}
-                className="text-[10px] px-2.5 py-1.5 rounded-lg bg-amber-600/90 text-stone-950 font-semibold"
-              >
-                {locale === "ko" ? "기기 실시간 연결 (선택)" : "Optional device link"}
-              </button>
-              <a
-                href={`/bridge?address=${encodeURIComponent(address)}`}
-                className="text-[10px] px-2.5 py-1.5 rounded-lg border border-stone-600 text-stone-300"
-              >
-                {locale === "ko" ? "다운로드 페이지" : "Download page"}
-              </a>
-            </div>
-          </div>
-        )}
-
         {/* ① Hashrate detail + legacy controls */}
         <section className="rounded-2xl border border-stone-700/80 bg-stone-950/80 p-3 sm:p-4 min-w-0 overflow-hidden">
           <div className="flex flex-col sm:flex-row sm:items-start gap-3">
@@ -523,16 +483,12 @@ export function Dashboard({ address, onLogout }: Props) {
               <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] uppercase tracking-wider text-stone-500">
                 <span className="inline-flex items-center gap-1.5 shrink-0">
                   {hrSource === "device"
-                    ? agent.hasLiveHashrate
-                      ? locale === "ko"
-                        ? "Local Agent 실측"
-                        : "Local Agent live"
-                      : deviceIsSticky
-                        ? locale === "ko"
-                          ? "기기 (최근값 유지)"
-                          : "Device (sticky)"
-                        : t("deviceLive")
-                    : t("poolOnly")}
+                    ? locale === "ko"
+                      ? "보드 실측"
+                      : "Board live"
+                    : locale === "ko"
+                      ? "풀 해시레이트 (링크 전용)"
+                      : "Pool hashrate (link only)"}
                   <span className="relative flex h-1.5 w-1.5">
                     <span
                       className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
@@ -571,15 +527,7 @@ export function Dashboard({ address, onLogout }: Props) {
                 )}
               </div>
 
-              {!agent.agentOnline && hrSource !== "device" && (
-                <div className="text-[10px] text-stone-400 border border-stone-700 rounded-lg px-2 py-1.5">
-                  {locale === "ko"
-                    ? "풀 데이터는 정상입니다. 보드 실측은 Local Agent가 필요합니다."
-                    : "Pool data is live. Board live needs Local Agent."}
-                </div>
-              )}
-
-              {/* Live board temperature (1s device poll) */}
+              {/* Live board temperature (only if board path active) */}
               {deviceHr.hasLiveHashrate && (
                 <div
                   className={`flex flex-wrap items-center gap-2 rounded-xl border px-2.5 py-2 ${
@@ -661,65 +609,19 @@ export function Dashboard({ address, onLogout }: Props) {
                 {u.hashrate1hr || "—"} / 1d {u.hashrate1d || "—"}
               </div>
 
-              {/* Device path = Local Agent only (no cloud→LAN) */}
-              <div className="flex flex-col sm:flex-row flex-wrap items-stretch sm:items-center gap-1.5 pt-0.5">
+              <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
                 <button
                   type="button"
-                  onClick={() => setTab("agent")}
-                  className={`text-[11px] px-3 py-2 rounded-lg font-medium border transition-colors ${
-                    agent.hasLiveHashrate
-                      ? "bg-emerald-600/20 text-emerald-300 border-emerald-600/40"
-                      : "bg-amber-600/90 text-stone-950 border-amber-500"
-                  }`}
+                  className="text-[11px] px-3 py-2 rounded-lg font-medium border border-stone-700 text-stone-300"
+                  onClick={() => void handleRefresh()}
                 >
-                  {agent.hasLiveHashrate
-                    ? locale === "ko"
-                      ? "📡 기기 연결됨"
-                      : "📡 Device live"
-                    : locale === "ko"
-                      ? "📡 기기 연결 (선택)"
-                      : "📡 Device link (optional)"}
+                  {locale === "ko" ? "새로고침" : "Refresh"}
                 </button>
-                <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
-                  <button
-                    type="button"
-                    className="text-[11px] px-3 py-2 rounded-lg font-medium border border-stone-700 text-stone-300"
-                    onClick={() => void agent.refresh()}
-                  >
-                    {locale === "ko" ? "상태 새로고침" : "Refresh"}
-                  </button>
-                  <span
-                    className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border shrink-0 ${
-                      deviceLinkStatus === "ok"
-                        ? "border-emerald-500/50 bg-emerald-500/10"
-                        : deviceLinkStatus === "loading"
-                          ? "border-amber-500/50 bg-amber-500/10"
-                          : "border-stone-700 bg-stone-900"
-                    }`}
-                    title={
-                      deviceLinkStatus === "ok"
-                        ? "Device Link STREAMING"
-                        : deviceLinkStatus === "loading"
-                          ? "Device Link connecting"
-                          : "Pool mode (device optional)"
-                    }
-                  >
-                    <span className="relative flex h-2.5 w-2.5">
-                      {deviceLinkStatus === "ok" && (
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-60" />
-                      )}
-                      <span
-                        className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
-                          deviceLinkStatus === "ok"
-                            ? "bg-emerald-500"
-                            : deviceLinkStatus === "loading"
-                              ? "bg-amber-500"
-                              : "bg-zinc-600"
-                        }`}
-                      />
-                    </span>
-                  </span>
-                </div>
+                <span className="text-[10px] text-stone-500 font-mono">
+                  {locale === "ko"
+                    ? "모바일·PC · 앱 설치 없음"
+                    : "Mobile & PC · no app install"}
+                </span>
               </div>
 
               <div className="grid grid-cols-2 gap-2 pt-1">
@@ -955,79 +857,41 @@ export function Dashboard({ address, onLogout }: Props) {
           </>
         )}
 
-        {/* ===== TAB: agent ===== */}
-        {tab === "agent" && (
+        {/* ===== TAB: more (link-only product info) ===== */}
+        {tab === "more" && (
           <section className="rounded-2xl border border-stone-700 bg-gradient-to-b from-stone-900 to-stone-950 p-4 space-y-3">
-            <div className="text-[10px] uppercase tracking-[0.25em] text-amber-600 font-semibold">
-              PRODUCT · WEB + OPTIONAL DEVICE LINK
+            <div className="text-[10px] uppercase tracking-[0.25em] text-emerald-600 font-semibold">
+              LINK ONLY · NO INSTALL
             </div>
             <h2 className="text-lg font-bold text-stone-100">
               {locale === "ko"
-                ? "웹은 완전체 · 기기는 선택 연결"
-                : "Web is complete · device is optional"}
+                ? "링크만으로 모바일·PC 사용"
+                : "Mobile & PC from the link alone"}
             </h2>
-            <div
-              className={`text-sm font-mono px-3 py-2 rounded-lg border ${
-                agent.hasLiveHashrate
-                  ? "border-emerald-600/50 bg-emerald-950/40 text-emerald-300"
-                  : "border-stone-600 bg-stone-900/80 text-stone-300"
-              }`}
-            >
-              {agent.hasLiveHashrate
-                ? `STREAMING · ${agent.hashRateGhs.toFixed(1)} GH/s · ${agent.hostIp || "—"} · ${agent.tempC ?? "—"}°C`
-                : locale === "ko"
-                  ? `풀 모드 · 기기 링크 없음 (정상) · id ${address.slice(0, 12)}…`
-                  : `Pool mode · no device link (OK) · id ${address.slice(0, 12)}…`}
-            </div>
-
-            <div className="text-[11px] text-stone-400 leading-relaxed space-y-2">
-              <p className="font-semibold text-emerald-400/90">
-                {locale === "ko"
-                  ? "제3자 · 링크만 타는 사용자"
-                  : "Third parties · link only"}
-              </p>
-              <p>
-                {locale === "ko"
-                  ? "설치 없이 주소만 입력하면 풀 통계·확률·차트가 동작합니다. 당신 bat 파일이 필요하지 않습니다."
-                  : "No install: enter payout address for pool stats, odds, charts. They never need your desktop .bat."}
-              </p>
-              <p className="font-semibold text-amber-400/90 pt-1">
-                {locale === "ko"
-                  ? "자기 집 보드 실시간 (선택)"
-                  : "Live home board (optional)"}
-              </p>
-              <p>
-                {locale === "ko"
-                  ? "브라우저/클라우드가 집 안 IP로 직접 들어갈 수 없어, 사이트에서 받은 Device Link를 자기 PC에서 실행합니다. CLIENT_ID = 로그인 주소라 사용자끼리 데이터가 안 섞입니다."
-                  : "Cloud/browser cannot reach private miner IPs. Download Device Link from the site; CLIENT_ID = your address so users never mix data."}
-              </p>
-              <pre className="text-[10px] font-mono bg-black/50 border border-stone-700 rounded-lg p-2.5 overflow-x-auto text-stone-300 whitespace-pre-wrap">{`[누구나 폰/PC] ─링크─▶ [SoloPulse 웹 = 풀 완전체]
-                              ▲ 선택
-               [자기 집 PC Device Link] ─▶ [자기 마이너]`}</pre>
-            </div>
-
-            <a
-              href={`/api/bridge/bundle?clientId=${encodeURIComponent(address)}&format=bat`}
-              className="block w-full text-center rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-sm py-3"
-            >
+            <div className="text-sm font-mono px-3 py-2 rounded-lg border border-emerald-600/40 bg-emerald-950/30 text-emerald-300">
               {locale === "ko"
-                ? "내 주소로 설정된 Bridge .bat 받기"
-                : "Download Bridge .bat for my address"}
-            </a>
-            <a
-              href={`/bridge?address=${encodeURIComponent(address)}`}
-              className="block w-full text-center rounded-xl border border-stone-600 text-stone-200 text-sm py-2.5"
-            >
-              {locale === "ko" ? "설치 가이드 / 제3자 안내" : "Install guide / for sharing"}
-            </a>
+                ? "브리지·앱 다운로드 없음 · 주소 입력만"
+                : "No bridge · no app download · just your address"}
+            </div>
+            <div className="text-[11px] text-stone-400 leading-relaxed space-y-2">
+              <p>
+                {locale === "ko"
+                  ? "공유받은 링크를 폰이나 PC 브라우저에서 열고, 채굴 주소만 넣으면 해시·확률·차트·네트워크가 동작합니다. 제3자는 bat/브리지를 받을 필요가 없습니다."
+                  : "Open the shared link in any phone or PC browser, enter your payout address, and hashrate, odds, charts, and network data work. Third parties never download a bridge."}
+              </p>
+              <p className="text-stone-500">
+                {locale === "ko"
+                  ? "데이터 출처: 솔로 풀(API) — 인터넷에서 바로 조회. 집 안 마이너 IP는 사용하지 않습니다."
+                  : "Data source: solo pool APIs on the public internet. No private home miner IP required."}
+              </p>
+            </div>
             <button
               type="button"
-              onClick={() => void agent.refresh()}
-              className="w-full rounded-xl border border-stone-700 text-stone-300 text-sm py-2.5"
+              onClick={() => void handleRefresh()}
+              className="w-full rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-sm py-3"
             >
-              {locale === "ko" ? "상태 새로고침" : "Refresh status"}
+              {locale === "ko" ? "대시보드 새로고침" : "Refresh dashboard"}
             </button>
-
             <div className="flex flex-wrap justify-center gap-2 pt-2">
               <a
                 href="https://x.com/medbedeee"
@@ -1046,12 +910,7 @@ export function Dashboard({ address, onLogout }: Props) {
         )}
       </main>
 
-      <BottomNav
-        tab={tab}
-        onChange={setTab}
-        locale={locale}
-        agentLive={agent.hasLiveHashrate}
-      />
+      <BottomNav tab={tab} onChange={setTab} locale={locale} />
 
       {dash.celebration && (
         <Celebration

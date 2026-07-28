@@ -6,11 +6,8 @@ import {
   setStoredAddress,
   setStoredPool,
   getStoredPool,
-  getStoredDeviceIp,
-  setStoredDeviceIp,
   getLastAddress,
   rememberLastAddress,
-  normalizeDeviceHost,
 } from "@/lib/history";
 import { POOL_OPTIONS } from "@/lib/pools";
 import { useI18n, localeButtonLabel } from "@/lib/i18n";
@@ -37,10 +34,6 @@ export function AddressGate({ onSubmit, defaultAddress = "" }: Props) {
     if (typeof window === "undefined") return "solo.ckpool.org";
     return getStoredPool() || "solo.ckpool.org";
   });
-  const [deviceIp, setDeviceIp] = useState(() => {
-    if (typeof window === "undefined") return "";
-    return getStoredDeviceIp();
-  });
   const [error, setError] = useState<string | null>(null);
 
   // Fill from parent / localStorage when gate opens
@@ -60,8 +53,7 @@ export function AddressGate({ onSubmit, defaultAddress = "" }: Props) {
     setStoredAddress(a);
     rememberLastAddress(a);
     setStoredPool(pool);
-    const host = normalizeDeviceHost(deviceIp);
-    if (host) setStoredDeviceIp(host);
+    // Link-only product: no device IP / bridge required for third parties
     onSubmit(a);
   }
 
@@ -100,12 +92,12 @@ export function AddressGate({ onSubmit, defaultAddress = "" }: Props) {
             Solo<span className="text-amber-500">Pulse</span>
           </h1>
           <p className="mt-3 text-sm text-[var(--muted)] leading-relaxed">{t("tagline")}</p>
-          <p className="mt-2 text-[11px] text-[var(--muted)] leading-relaxed">
+          <p className="mt-2 text-[11px] text-emerald-500/90 leading-relaxed font-medium">
             {locale === "ko"
-              ? "최근 주소 자동 기억 · 기기 IP로 보드 실측 해시"
+              ? "링크만 열면 됩니다 · 폰·PC 설치 없음 · 브리지 불필요"
               : locale === "ja"
-                ? "最近のアドレスを記憶 · 機器IPで実測"
-                : "Remembers last address · device IP for live board hashrate"}
+                ? "リンクを開くだけ · スマホ/PC インストール不要"
+                : "Just open the link · phone & PC · no install, no bridge"}
           </p>
         </div>
 
@@ -165,33 +157,6 @@ export function AddressGate({ onSubmit, defaultAddress = "" }: Props) {
               {locale === "ko"
                 ? "주소가 없으면 다른 CK/Public 리전도 자동 검색"
                 : "Auto-scans other CK/Public regions if needed"}
-            </p>
-          </div>
-
-          <div>
-            <label
-              htmlFor="deviceIp"
-              className="block text-xs font-medium uppercase tracking-wider text-[var(--muted)] mb-2"
-            >
-              {t("deviceIp")}{" "}
-              <span className="normal-case font-normal opacity-70">
-                ({locale === "ko" ? "보드 실측용" : "for live board"})
-              </span>
-            </label>
-            <input
-              id="deviceIp"
-              type="text"
-              autoComplete="off"
-              spellCheck={false}
-              placeholder="172.30.1.x 또는 https://xxx.trycloudflare.com"
-              value={deviceIp}
-              onChange={(e) => setDeviceIp(e.target.value)}
-              className="w-full rounded-xl bg-[var(--bg)] border border-[var(--border)] focus:border-amber-500 outline-none px-4 py-3 text-sm font-mono text-[var(--fg)] placeholder:text-[var(--muted)]"
-            />
-            <p className="mt-1 text-[10px] text-[var(--muted)] leading-relaxed">
-              {locale === "ko"
-                ? "홈 PC 서버= LAN IP. Netlify 공개 배포= 채굴기로 향하는 HTTPS 터널 URL 필요"
-                : "Home server: LAN IP. Netlify public: HTTPS tunnel URL to the miner"}
             </p>
           </div>
 

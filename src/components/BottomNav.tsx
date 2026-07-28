@@ -6,7 +6,7 @@ export type DashTab =
   | "odds"
   | "chart"
   | "network"
-  | "agent";
+  | "more";
 
 const TABS: {
   id: DashTab;
@@ -19,18 +19,18 @@ const TABS: {
   { id: "odds", icon: "🎲", labelKo: "확률", labelEn: "Odds" },
   { id: "chart", icon: "📈", labelKo: "기록", labelEn: "Chart" },
   { id: "network", icon: "🌐", labelKo: "네트워크", labelEn: "Net" },
-  { id: "agent", icon: "📡", labelKo: "Agent", labelEn: "Agent" },
+  { id: "more", icon: "ℹ️", labelKo: "안내", labelEn: "Info" },
 ];
 
 export function BottomNav({
   tab,
   onChange,
   locale,
-  agentLive,
 }: {
   tab: DashTab;
   onChange: (t: DashTab) => void;
   locale: string;
+  /** @deprecated unused — link users never need bridge status lights */
   agentLive?: boolean;
 }) {
   return (
@@ -59,13 +59,6 @@ export function BottomNav({
               <span className="text-[9px] font-medium tracking-tight leading-none">
                 {label}
               </span>
-              {t.id === "agent" && (
-                <span
-                  className={`absolute top-1.5 right-2 h-1.5 w-1.5 rounded-full ${
-                    agentLive ? "bg-emerald-400" : "bg-red-500"
-                  }`}
-                />
-              )}
               {active && (
                 <span className="absolute -top-px left-1/2 -translate-x-1/2 w-6 h-0.5 rounded-full bg-amber-500" />
               )}
