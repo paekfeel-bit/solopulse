@@ -6,10 +6,7 @@ import { createServer } from "node:http";
 import { parse } from "node:url";
 import { createRequire } from "node:module";
 import { WebSocketServer } from "ws";
-import {
-  putTelemetry,
-  putHeartbeat,
-} from "./server-agent-store.mjs";
+import { putStream } from "./server-agent-store.mjs";
 
 const require = createRequire(import.meta.url);
 const next = require("next");
@@ -180,14 +177,19 @@ app
               ts: Date.now(),
             };
             lastMiner.set(cid, out);
+            // Fan-out to matching clientId + "default" so UI always receives
             broadcast(cid, out);
+            if (cid !== "default") broadcast("default", out);
             try {
               const tel = telFromBridge(cid, {
                 ...data,
                 agentId: packet.agentId,
               });
-              await putTelemetry(tel);
-              await putHeartbeat({
+              // Always stamp collectedAt so sticky online works
+              if (!tel.collectedAt || tel.collectedAt < Date.now() - 5_000) {
+                tel.collectedAt = Date.now();
+              }
+              await putStream(tel, {
                 agentId: String(packet.agentId || "ws-bridge"),
                 status: "STREAMING",
                 version: "ws-1",

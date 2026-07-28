@@ -1,9 +1,12 @@
 /**
  * Shared agent snapshot for custom server (WebSocket path).
- * Mirrors src/lib/agentStore.ts → JSONBlob for multi-instance safety.
+ * Atomic telemetry+heartbeat writes to avoid JSONBlob races.
  */
 const DEFAULT_SNAPSHOT =
   "https://jsonblob.com/api/jsonBlob/019fa850-df81-7bea-af1b-2c18bc6361a8";
+
+/** Device considered live this long after last sample (sticky) */
+const FRESH_MS = 120_000;
 
 function snapshotUrl() {
   return (
@@ -14,6 +17,7 @@ function snapshotUrl() {
 }
 
 let mem = { telemetry: null, heartbeat: null, updatedAt: 0 };
+let writeChain = Promise.resolve();
 
 async function remoteGet() {
   try {
@@ -37,7 +41,7 @@ async function remoteGet() {
 
 async function remotePut(data) {
   try {
-    await fetch(snapshotUrl(), {
+    const res = await fetch(snapshotUrl(), {
       method: "PUT",
       signal: AbortSignal.timeout(10000),
       headers: {
@@ -46,37 +50,77 @@ async function remotePut(data) {
       },
       body: JSON.stringify(data),
     });
+    return res.ok;
   } catch {
-    /* */
+    return false;
   }
+}
+
+/** Serialize all writes so concurrent bridge ticks cannot clobber each other */
+function enqueueWrite(fn) {
+  writeChain = writeChain.then(fn, fn);
+  return writeChain;
 }
 
 export async function putTelemetry(t) {
-  mem.telemetry = t;
-  mem.updatedAt = Date.now();
-  if (mem.heartbeat) {
+  return enqueueWrite(async () => {
+    const now = Date.now();
+    const remote = await remoteGet();
+    if (remote && (remote.updatedAt || 0) > (mem.updatedAt || 0)) {
+      mem = {
+        telemetry: remote.telemetry || mem.telemetry,
+        heartbeat: remote.heartbeat || mem.heartbeat,
+        updatedAt: remote.updatedAt,
+      };
+    }
+    mem.telemetry = t;
     mem.heartbeat = {
-      ...mem.heartbeat,
-      status: t.agentStatus || mem.heartbeat.status,
-      ts: Date.now(),
+      agentId: String(t.agentId || mem.heartbeat?.agentId || "ws-bridge"),
+      status: t.agentStatus || "STREAMING",
+      version: mem.heartbeat?.version || "ws-1",
+      devices: [String(t.hostIp || "")].filter(Boolean),
+      ts: now,
+      lastError: null,
     };
-  }
-  await remotePut(mem);
+    mem.updatedAt = now;
+    await remotePut(mem);
+  });
 }
 
 export async function putHeartbeat(h) {
-  const remote = await remoteGet();
-  if (remote) {
-    mem = {
-      telemetry: remote.telemetry || mem.telemetry,
-      heartbeat: h,
-      updatedAt: Date.now(),
-    };
-  } else {
-    mem.heartbeat = h;
-    mem.updatedAt = Date.now();
-  }
-  await remotePut(mem);
+  return enqueueWrite(async () => {
+    const remote = await remoteGet();
+    if (remote) {
+      mem = {
+        telemetry: remote.telemetry || mem.telemetry,
+        heartbeat: h,
+        updatedAt: Date.now(),
+      };
+    } else {
+      mem.heartbeat = h;
+      mem.updatedAt = Date.now();
+    }
+    await remotePut(mem);
+  });
+}
+
+/** One-shot write used by WebSocket path — no second race with putHeartbeat */
+export async function putStream(t, h) {
+  return enqueueWrite(async () => {
+    const now = Date.now();
+    const remote = await remoteGet();
+    if (remote && (remote.updatedAt || 0) > (mem.updatedAt || 0)) {
+      mem = {
+        telemetry: remote.telemetry || mem.telemetry,
+        heartbeat: remote.heartbeat || mem.heartbeat,
+        updatedAt: remote.updatedAt,
+      };
+    }
+    mem.telemetry = t || mem.telemetry;
+    mem.heartbeat = h || mem.heartbeat;
+    mem.updatedAt = now;
+    await remotePut(mem);
+  });
 }
 
 export async function getSnapshot() {
@@ -86,10 +130,11 @@ export async function getSnapshot() {
   const t = mem.telemetry;
   const hb = mem.heartbeat;
   const last = Math.max(t?.collectedAt || 0, hb?.ts || 0, mem.updatedAt || 0);
-  const deviceFresh = Boolean(t && now - t.collectedAt < 45_000);
-  const agentOnline = Boolean(hb && now - hb.ts < 45_000) || deviceFresh;
+  const deviceFresh = Boolean(t && now - t.collectedAt < FRESH_MS);
+  const agentOnline = Boolean(hb && now - hb.ts < FRESH_MS) || deviceFresh;
+  const ghs = Number(t?.hashRateGhs) || 0;
   return {
-    online: deviceFresh,
+    online: deviceFresh && ghs > 0,
     agentOnline,
     agentStatus: hb?.status || (deviceFresh ? "STREAMING" : "AGENT_OFFLINE"),
     telemetry: t,

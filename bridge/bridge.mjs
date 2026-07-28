@@ -30,10 +30,16 @@ const KEY =
   "solopulse-local-dev-key";
 const CLIENT_ID = process.env.CLIENT_ID || process.env.PAYOUT_ADDRESS || "default";
 const POLL_MS = Number(process.env.POLL_MS || 3000);
+const CLOUD_HTTP = (
+  process.env.SOLOPULSE_CLOUD_URL ||
+  process.env.CLOUD_URL ||
+  RAILWAY_WS.replace(/^wss:/, "https:").replace(/^ws:/, "http:").replace(/\/ws\/?$/, "")
+).replace(/\/$/, "");
 
 let minerIp = MINER_IP;
 let ws = null;
 let timer = null;
+let lastPostOk = 0;
 
 function log(...a) {
   console.log(`[${new Date().toISOString()}]`, ...a);
@@ -123,6 +129,74 @@ function toGhs(n) {
   return x;
 }
 
+function postTelemetryHttp(data, ghs) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({
+      schemaVersion: 1,
+      deviceId: String(data.hostIp || minerIp || "device"),
+      deviceModel: String(data.deviceModel || "NerdQAxe"),
+      hostIp: String(data.hostIp || minerIp || ""),
+      hashRateGhs: ghs,
+      hashRateHs: ghs * 1e9,
+      windows: {
+        instantGhs: ghs,
+        m1Ghs: ghs,
+        m10Ghs: ghs,
+        h1Ghs: ghs,
+        d1Ghs: ghs,
+      },
+      tempC: data.temp != null ? Number(data.temp) : null,
+      powerW: data.power != null ? Number(data.power) : null,
+      fanRpm: null,
+      bestDiff: Number(data.bestDiff || data.bestshare) || 0,
+      bestSessionDiff: Number(data.bestSessionDiff) || 0,
+      networkDifficulty: Number(data.networkDifficulty) || 0,
+      sharesAccepted: Number(data.sharesAccepted) || 0,
+      sharesRejected: Number(data.sharesRejected) || 0,
+      foundBlocks: Number(data.foundBlocks) || 0,
+      totalFoundBlocks: Number(data.totalFoundBlocks) || 0,
+      uptimeSec: data.uptime != null ? Number(data.uptime) : null,
+      firmware: null,
+      collectedAt: Number(data.timestamp) || Date.now(),
+      agentId: "bridge",
+      agentStatus: "STREAMING",
+      source: "axeos",
+    });
+    const u = new URL(`${CLOUD_HTTP}/api/agent/telemetry`);
+    const lib = u.protocol === "https:" ? https : http;
+    const req = lib.request(
+      {
+        hostname: u.hostname,
+        port: u.port || (u.protocol === "https:" ? 443 : 80),
+        path: u.pathname,
+        method: "POST",
+        timeout: 8000,
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+          "x-agent-key": KEY,
+          "Content-Length": Buffer.byteLength(body),
+        },
+      },
+      (res) => {
+        res.on("data", () => {});
+        res.on("end", () => {
+          if ((res.statusCode || 0) >= 200 && (res.statusCode || 0) < 300)
+            resolve();
+          else reject(new Error(`POST ${res.statusCode}`));
+        });
+      }
+    );
+    req.on("error", reject);
+    req.on("timeout", () => {
+      req.destroy();
+      reject(new Error("post timeout"));
+    });
+    req.write(body);
+    req.end();
+  });
+}
+
 function connectWs() {
   const url = `${RAILWAY_WS}?role=bridge&clientId=${encodeURIComponent(CLIENT_ID)}&key=${encodeURIComponent(KEY)}`;
   log("connecting", url.replace(KEY, "***"));
@@ -174,30 +248,42 @@ async function tick() {
     if (r.status !== 200) throw new Error(`HTTP ${r.status}`);
     const data = JSON.parse(r.body);
     const ghs = toGhs(data.hashRate ?? data.hashrate);
-    ws.send(
-      JSON.stringify({
-        type: "miner_data",
-        clientId: CLIENT_ID,
-        agentId: "bridge",
-        data: {
-          hashrate: ghs,
-          hashRateGhs: ghs,
-          bestshare: data.bestDiff ?? data.bestshare,
-          bestDiff: data.bestDiff,
-          bestSessionDiff: data.bestSessionDiff,
-          temp: data.temp,
-          power: data.power,
-          uptime: data.uptimeSeconds ?? data.uptime,
-          hostIp: data.hostip || minerIp,
-          deviceModel: data.deviceModel || data.ASICModel,
-          sharesAccepted: data.sharesAccepted,
-          sharesRejected: data.sharesRejected,
-          foundBlocks: data.foundBlocks,
-          networkDifficulty: data.networkDifficulty,
-          timestamp: Date.now(),
-        },
-      })
-    );
+    const now = Date.now();
+    const payload = {
+      type: "miner_data",
+      clientId: CLIENT_ID,
+      agentId: "bridge",
+      data: {
+        hashrate: ghs,
+        hashRateGhs: ghs,
+        bestshare: data.bestDiff ?? data.bestshare,
+        bestDiff: data.bestDiff,
+        bestSessionDiff: data.bestSessionDiff,
+        temp: data.temp,
+        power: data.power,
+        uptime: data.uptimeSeconds ?? data.uptime,
+        hostIp: data.hostip || minerIp,
+        deviceModel: data.deviceModel || data.ASICModel,
+        sharesAccepted: data.sharesAccepted,
+        sharesRejected: data.sharesRejected,
+        foundBlocks: data.foundBlocks,
+        totalFoundBlocks: data.totalFoundBlocks,
+        networkDifficulty: data.networkDifficulty,
+        timestamp: now,
+      },
+    };
+    ws.send(JSON.stringify(payload));
+
+    // Dual-write HTTP so dashboard stays live even if WS store hiccups
+    if (now - lastPostOk > 2000) {
+      void postTelemetryHttp(payload.data, ghs)
+        .then(() => {
+          lastPostOk = Date.now();
+        })
+        .catch(() => {
+          /* non-fatal */
+        });
+    }
     log(`→ ${minerIp} ${ghs.toFixed(1)} GH/s ${data.temp ?? "—"}°C`);
   } catch (e) {
     log("tick fail", e.message);

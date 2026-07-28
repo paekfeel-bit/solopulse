@@ -2,12 +2,14 @@ import type { AgentHeartbeat, AgentSnapshot, MinerTelemetry } from "./telemetry"
 
 /**
  * Shared agent snapshot store.
- * Vercel serverless has no durable local FS across instances —
- * use JSONBlob (or set AGENT_SNAPSHOT_URL) as source of truth in production.
+ * Atomic writes + sticky freshness so dashboard does not flap OFFLINE.
  */
 
 const DEFAULT_SNAPSHOT =
   "https://jsonblob.com/api/jsonBlob/019fa850-df81-7bea-af1b-2c18bc6361a8";
+
+/** Live window after last sample (2 min sticky) */
+const FRESH_MS = 120_000;
 
 function snapshotUrl(): string {
   return (
@@ -24,6 +26,12 @@ type StoreShape = {
 };
 
 let mem: StoreShape = { telemetry: null, heartbeat: null, updatedAt: 0 };
+let writeChain: Promise<void> = Promise.resolve();
+
+function enqueueWrite(fn: () => Promise<void>): Promise<void> {
+  writeChain = writeChain.then(fn, fn);
+  return writeChain;
+}
 
 async function remoteGet(): Promise<StoreShape | null> {
   try {
@@ -45,9 +53,9 @@ async function remoteGet(): Promise<StoreShape | null> {
   }
 }
 
-async function remotePut(data: StoreShape): Promise<void> {
+async function remotePut(data: StoreShape): Promise<boolean> {
   try {
-    await fetch(snapshotUrl(), {
+    const res = await fetch(snapshotUrl(), {
       method: "PUT",
       signal: AbortSignal.timeout(10000),
       headers: {
@@ -56,38 +64,52 @@ async function remotePut(data: StoreShape): Promise<void> {
       },
       body: JSON.stringify(data),
     });
+    return res.ok;
   } catch {
-    /* keep memory */
+    return false;
   }
 }
 
 export async function putTelemetry(t: MinerTelemetry) {
-  mem.telemetry = t;
-  mem.updatedAt = Date.now();
-  if (mem.heartbeat) {
+  return enqueueWrite(async () => {
+    const now = Date.now();
+    const remote = await remoteGet();
+    if (remote && (remote.updatedAt || 0) > (mem.updatedAt || 0)) {
+      mem = {
+        telemetry: remote.telemetry || mem.telemetry,
+        heartbeat: remote.heartbeat || mem.heartbeat,
+        updatedAt: remote.updatedAt,
+      };
+    }
+    mem.telemetry = t;
     mem.heartbeat = {
-      ...mem.heartbeat,
-      status: t.agentStatus || mem.heartbeat.status,
-      ts: Date.now(),
+      agentId: String(t.agentId || mem.heartbeat?.agentId || "local-agent"),
+      status: t.agentStatus || "STREAMING",
+      version: mem.heartbeat?.version || "1",
+      devices: [String(t.hostIp || "")].filter(Boolean),
+      ts: now,
+      lastError: null,
     };
-  }
-  await remotePut(mem);
+    mem.updatedAt = now;
+    await remotePut(mem);
+  });
 }
 
 export async function putHeartbeat(h: AgentHeartbeat) {
-  // merge with remote first so we don't wipe telemetry from another instance
-  const remote = await remoteGet();
-  if (remote) {
-    mem = {
-      telemetry: remote.telemetry || mem.telemetry,
-      heartbeat: h,
-      updatedAt: Date.now(),
-    };
-  } else {
-    mem.heartbeat = h;
-    mem.updatedAt = Date.now();
-  }
-  await remotePut(mem);
+  return enqueueWrite(async () => {
+    const remote = await remoteGet();
+    if (remote) {
+      mem = {
+        telemetry: remote.telemetry || mem.telemetry,
+        heartbeat: h,
+        updatedAt: Date.now(),
+      };
+    } else {
+      mem.heartbeat = h;
+      mem.updatedAt = Date.now();
+    }
+    await remotePut(mem);
+  });
 }
 
 export async function getSnapshot(): Promise<AgentSnapshot> {
@@ -100,10 +122,10 @@ export async function getSnapshot(): Promise<AgentSnapshot> {
   const hb = mem.heartbeat;
   const last = Math.max(t?.collectedAt || 0, hb?.ts || 0, mem.updatedAt || 0);
   const staleMs = last ? now - last : Number.POSITIVE_INFINITY;
-  const agentOnline = Boolean(hb && now - hb.ts < 45_000);
-  const deviceFresh = Boolean(t && now - t.collectedAt < 45_000);
-  // Fresh telemetry alone means the board path is live (heartbeat may lag)
-  const live = deviceFresh && (Number(t?.hashRateGhs) || 0) >= 0;
+  const deviceFresh = Boolean(t && now - t.collectedAt < FRESH_MS);
+  const agentOnline = Boolean(hb && now - hb.ts < FRESH_MS) || deviceFresh;
+  const ghs = Number(t?.hashRateGhs) || 0;
+  const live = deviceFresh && ghs > 0;
   return {
     online: live,
     agentOnline: agentOnline || live,

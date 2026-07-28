@@ -187,11 +187,16 @@ export function useAgentTelemetry(enabled = true, clientId = "default") {
   const t: MinerTelemetry | null = snap?.telemetry ?? null;
   const agentOnline = !!snap?.agentOnline;
   const ghs = Number(t?.hashRateGhs) || 0;
+  // Sticky 2 min — matches server FRESH_MS so UI does not flap OFFLINE
+  const STICKY_MS = 120_000;
+  const ageMs = t?.collectedAt ? Date.now() - t.collectedAt : Number.POSITIVE_INFINITY;
   const fresh =
     !!t &&
+    ghs > 0 &&
     (!!snap?.online ||
-      (t.collectedAt > 0 && Date.now() - t.collectedAt < 60_000));
-  const deviceOnline = fresh && !!t;
+      !!snap?.agentOnline ||
+      (Number.isFinite(ageMs) && ageMs < STICKY_MS));
+  const deviceOnline = fresh;
 
   return {
     snap,

@@ -253,12 +253,16 @@ export function Dashboard({ address, onLogout }: Props) {
     ]);
   }
 
-  /** Agent / device status for UI light */
+  /** Agent / device status for UI light — sticky: only fail when truly offline */
   const deviceLinkStatus: "idle" | "loading" | "ok" | "fail" = (() => {
     if (agent.hasLiveHashrate) return "ok";
-    if (agent.agentOnline && agent.telemetry) return "ok";
-    if (!agent.agentOnline) return "fail";
-    return "idle";
+    if (agent.deviceOnline) return "ok";
+    if (agent.agentOnline && agent.telemetry && Number(agent.hashRateGhs) > 0)
+      return "ok";
+    // Grace period while first samples arrive
+    if (agent.staleMs < 45_000 && agent.telemetry) return "ok";
+    if (agent.agentOnline) return "loading";
+    return "fail";
   })();
 
   const deviceTemp =
