@@ -56,7 +56,6 @@ export function isPrivateIPv4(host: string): boolean {
   if (!m) return false;
   const a = Number(m[1]);
   const b = Number(m[2]);
-  // Explicitly exclude cloud metadata / link-local abuse
   if (a === 169 && b === 254) return false;
   if (a === 0 || a === 255) return false;
   if (a === 10 || a === 127) return true;
@@ -66,7 +65,7 @@ export function isPrivateIPv4(host: string): boolean {
 }
 
 /**
- * SSRF guard for /api/device (Netlify security / open-proxy prevention).
+ * SSRF guard for /api/device.
  * Allow only home LAN, localhost, .local, and known tunnel host suffixes.
  */
 export function isAllowedDeviceHost(hostOnly: string): boolean {
@@ -75,12 +74,10 @@ export function isAllowedDeviceHost(hostOnly: string): boolean {
   if (h === "localhost" || h === "127.0.0.1" || h === "[::1]" || h === "::1") {
     return true;
   }
-  // Cloud metadata — always deny
   if (h === "169.254.169.254" || h.startsWith("169.254.")) return false;
   if (h === "metadata.google.internal") return false;
 
   if (h.endsWith(".local")) return true;
-  // Public quick-tunnels used to expose home miners
   const tunnelSuffixes = [
     ".trycloudflare.com",
     ".loca.lt",
@@ -89,6 +86,7 @@ export function isAllowedDeviceHost(hostOnly: string): boolean {
     ".ngrok-free.app",
     ".ngrok-free.dev",
     ".pinggy.io",
+    ".cfargotunnel.com",
   ];
   if (tunnelSuffixes.some((s) => h.endsWith(s))) return true;
 
@@ -126,10 +124,10 @@ export function parseDeviceTarget(raw: string): {
   }
   const privateLan = isPrivateIPv4(hostOnly) || hostOnly.endsWith(".local");
   const scheme = protocol || (privateLan ? "http" : "https");
-  // Force https for public tunnels (no cleartext to internet hosts)
-  const finalScheme = privateLan || hostOnly === "localhost" || hostOnly === "127.0.0.1"
-    ? scheme || "http"
-    : "https";
+  const finalScheme =
+    privateLan || hostOnly === "localhost" || hostOnly === "127.0.0.1"
+      ? scheme || "http"
+      : "https";
   return {
     base: `${finalScheme}://${s}`,
     displayHost: s,
@@ -248,12 +246,21 @@ export async function fetchDeviceDirect(
   for (const path of PATHS) {
     const url = `${target.base}${path}`;
     try {
-      const res = await fetch(url, {
+      const init: RequestInit = {
         cache: "no-store",
         signal: AbortSignal.timeout(timeoutMs),
-        headers: { Accept: "application/json, text/plain, */*" },
-        mode: "cors",
-      });
+        headers: {
+          Accept: "application/json, text/plain, */*",
+          // Some AxeOS builds are picky about User-Agent
+          "User-Agent": "SoloPulse/1.0",
+        },
+        redirect: "follow",
+      };
+      // mode:cors only valid/needed in browsers; omit on Node (Vercel)
+      if (typeof window !== "undefined") {
+        init.mode = "cors";
+      }
+      const res = await fetch(url, init);
       if (!res.ok) {
         lastErr = `HTTP ${res.status} @ ${path}`;
         continue;
@@ -264,11 +271,16 @@ export async function fetchDeviceDirect(
         lastErr = `Invalid JSON @ ${path}`;
         continue;
       }
-      // Accept board even if hashrate is 0 momentarily
       const info = parseAxeOsPayload(raw, target.displayHost, "direct");
       return { ok: true, info };
     } catch (e) {
-      lastErr = e instanceof Error ? e.message : "fetch failed";
+      const m = e instanceof Error ? e.message : "fetch failed";
+      // Node undici timeout wording
+      if (/timeout|aborted|AbortError/i.test(m)) {
+        lastErr = `timeout @ ${path}`;
+      } else {
+        lastErr = m;
+      }
     }
   }
   return { ok: false, error: lastErr };
@@ -283,19 +295,30 @@ export function canBrowserReachDevice(rawHost: string): boolean {
   const target = parseDeviceTarget(rawHost);
   if (!target) return false;
   if (target.base.startsWith("https://")) return true;
-  // http device
   if (window.location.protocol === "https:") return false;
   return true;
 }
 
-/** Guess subnet from page host or common home ranges for scan UI */
+/** Running on public cloud host (Vercel/Netlify) — no home LAN access */
+export function isCloudHostedPage(): boolean {
+  if (typeof window === "undefined") return false;
+  const h = window.location.hostname.toLowerCase();
+  return (
+    h.endsWith(".vercel.app") ||
+    h.endsWith(".netlify.app") ||
+    h.endsWith(".netlify.com") ||
+    h.includes("vercel") ||
+    h.includes("netlify")
+  );
+}
+
+/** Guess subnet candidates for scan UI */
 export function guessScanCandidates(baseHint?: string): string[] {
   const ips: string[] = [];
   const addRange = (a: number, b: number, c: number) => {
-    // common device ends
     for (const d of [
-      1, 2, 10, 20, 30, 40, 50, 60, 70, 80, 90, 97, 100, 110, 120, 150, 200,
-      254,
+      1, 2, 10, 20, 30, 40, 50, 60, 66, 67, 70, 74, 80, 90, 96, 97, 99, 100, 110,
+      120, 150, 200, 254,
     ]) {
       ips.push(`${a}.${b}.${c}.${d}`);
     }
@@ -317,7 +340,6 @@ export function guessScanCandidates(baseHint?: string): string[] {
     }
   }
 
-  // Korean home router common: 172.30.1.x (KT/etc), 192.168.0/1
   addRange(172, 30, 1);
   addRange(192, 168, 0);
   addRange(192, 168, 1);

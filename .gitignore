@@ -40,9 +40,20 @@ yarn-error.log*
 next-env.d.ts
 
 export/
-
+.data/
 .netlify/
-
+.railway/
 CURRENT_PUBLIC_URL.txt
-
 *.log
+.vercel
+
+# Android / Capacitor build artifacts (source stays)
+android/.gradle/
+android/**/build/
+android/local.properties
+android/captures/
+*.apk
+*.aab
+*.jks
+*.keystore
+

@@ -8,7 +8,8 @@ const LAST_ADDR_KEY = "solopulse:lastAddress";
 const POOL_KEY = "solopulse:pool";
 const DEVICE_IP_KEY = "solopulse:deviceIp";
 /** DHCP changes often — scan will override; keep last known NerdQAxe */
-const DEFAULT_DEVICE_IP = "172.30.1.99";
+/** "auto" = use live home bridge tunnel registry (recommended on Vercel) */
+const DEFAULT_DEVICE_IP = "auto";
 
 function lsGet(key: string): string | null {
   if (typeof window === "undefined") return null;
@@ -124,6 +125,7 @@ export function setStoredPool(pool: string) {
 export function normalizeDeviceHost(raw: string): string {
   let s = raw.trim();
   if (!s) return "";
+  if (s.toLowerCase() === "auto" || s.toLowerCase() === "bridge") return "auto";
   if (/^https?:\/\//i.test(s)) {
     try {
       const u = new URL(s);
@@ -139,6 +141,7 @@ export function normalizeDeviceHost(raw: string): string {
 export function isValidDeviceHost(host: string): boolean {
   const h = normalizeDeviceHost(host);
   if (!h) return false;
+  if (h.toLowerCase() === "auto" || h.toLowerCase() === "bridge") return true;
   let hostname = h;
   if (/^https?:\/\//i.test(h)) {
     try {
@@ -177,8 +180,9 @@ export function isValidDeviceHost(host: string): boolean {
 export function getStoredDeviceIp(): string {
   if (typeof window === "undefined") return DEFAULT_DEVICE_IP;
   const v = lsGet(DEVICE_IP_KEY);
-  if (v === null) return DEFAULT_DEVICE_IP;
-  return normalizeDeviceHost(v);
+  if (v === null || v.trim() === "") return DEFAULT_DEVICE_IP;
+  const n = normalizeDeviceHost(v);
+  return n || DEFAULT_DEVICE_IP;
 }
 
 export function setStoredDeviceIp(ip: string) {

@@ -4,7 +4,7 @@ cd /d "%~dp0"
 title SoloPulse — 채굴기 영구 터널 (Netlify 보드 실측용)
 
 REM 채굴기 AxeOS IP (DHCP로 바뀌면 여기만 수정)
-set MINER_IP=172.30.1.99
+set MINER_IP=172.30.1.8
 
 echo.
 echo  ========================================

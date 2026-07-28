@@ -10,26 +10,56 @@ import {
 import {
   canBrowserReachDevice,
   fetchDeviceDirect,
+  isCloudHostedPage,
+  isPrivateIPv4,
+  parseDeviceTarget,
   type DeviceInfo,
 } from "@/lib/deviceClient";
 
 export type { DeviceInfo };
 
 const POLL_MS = 3_000;
-const STICKY_MS = 120_000;
+const STICKY_MS = 180_000;
+const TUNNEL_LS_KEY = "solopulse:deviceTunnel";
 
 function sleep(ms: number) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function getStoredTunnel(): string {
+  if (typeof window === "undefined") return "";
+  try {
+    return normalizeDeviceHost(localStorage.getItem(TUNNEL_LS_KEY) || "");
+  } catch {
+    return "";
+  }
+}
+
+function setStoredTunnel(url: string) {
+  if (typeof window === "undefined") return;
+  try {
+    const v = normalizeDeviceHost(url);
+    if (v) localStorage.setItem(TUNNEL_LS_KEY, v);
+    else localStorage.removeItem(TUNNEL_LS_KEY);
+  } catch {
+    /* */
+  }
+}
+
+function isTunnelHost(raw: string): boolean {
+  const t = parseDeviceTarget(raw);
+  if (!t) return false;
+  return !t.privateLan && /^https:\/\//i.test(t.base);
+}
+
 /**
- * Device hashrate: server proxy (required for HTTPS/Netlify)
- * + optional browser direct on plain HTTP LAN.
- * Soft-fail: pool dashboard keeps working if board is offline.
+ * Always works with start-device-bridge.bat on home PC:
+ * - Cloud: connects via ip=auto (live tunnel registry)
+ * - LAN IP still accepted (server falls back to registry tunnel)
  */
 export function useDeviceHashrate(enabled: boolean) {
   const [ip, setIpState] = useState(() =>
-    typeof window !== "undefined" ? getStoredDeviceIp() : "172.30.1.99"
+    typeof window !== "undefined" ? getStoredDeviceIp() : "auto"
   );
   const [device, setDevice] = useState<DeviceInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -39,26 +69,38 @@ export function useDeviceHashrate(enabled: boolean) {
   const lastGood = useRef<DeviceInfo | null>(null);
   const busy = useRef(false);
   const ipRef = useRef(ip);
-  const didAutoScan = useRef(false);
+  const didBoot = useRef(false);
 
   useEffect(() => {
     ipRef.current = ip;
   }, [ip]);
 
   useEffect(() => {
-    const stored = getStoredDeviceIp();
-    if (stored) {
-      setIpState(stored);
-      ipRef.current = stored;
+    // Migrate empty / force cloud default
+    let stored = getStoredDeviceIp();
+    if (!stored || stored === "undefined") {
+      stored = isCloudHostedPage() ? "auto" : getStoredDeviceIp() || "auto";
+      setStoredDeviceIp(stored === "auto" ? "auto" : stored);
     }
+    // On cloud, prefer auto so DHCP LAN IPs never block connect
+    if (isCloudHostedPage() && isPrivateIPv4(stored)) {
+      // keep LAN for display but connect via auto — store both
+      // actually switch to auto for reliability
+      stored = "auto";
+      setStoredDeviceIp("auto");
+    }
+    setIpState(stored);
+    ipRef.current = stored;
   }, []);
 
   const setIp = useCallback((next: string) => {
-    const v = normalizeDeviceHost(next);
-    setStoredDeviceIp(v);
-    setIpState(v);
-    ipRef.current = v;
-    if (!v) {
+    const v = normalizeDeviceHost(next) || next.trim().toLowerCase();
+    const final = v === "auto" || v === "bridge" ? "auto" : v;
+    setStoredDeviceIp(final);
+    setIpState(final);
+    ipRef.current = final;
+    if (final !== "auto" && isTunnelHost(final)) setStoredTunnel(final);
+    if (!final) {
       setDevice(null);
       lastGood.current = null;
       setError(null);
@@ -66,7 +108,11 @@ export function useDeviceHashrate(enabled: boolean) {
     }
   }, []);
 
-  const hasDevice = enabled && normalizeDeviceHost(ip).length > 0;
+  const hasDevice =
+    enabled &&
+    (ip === "auto" ||
+      ip === "bridge" ||
+      normalizeDeviceHost(ip).length > 0);
 
   const applyOk = useCallback((info: DeviceInfo) => {
     if (info.temp != null && !Number.isFinite(Number(info.temp))) info.temp = null;
@@ -83,6 +129,10 @@ export function useDeviceHashrate(enabled: boolean) {
     setDevice(info);
     setError(null);
     setStatus("online");
+    // Remember real LAN IP for display
+    if (info.ip && isPrivateIPv4(String(info.ip).replace(/:\d+$/, ""))) {
+      /* keep ipRef as auto on cloud; draft may update in UI */
+    }
     return info;
   }, []);
 
@@ -119,72 +169,84 @@ export function useDeviceHashrate(enabled: boolean) {
 
   const fetchDevice = useCallback(
     async (overrideIp?: string, force = false) => {
-      const target = normalizeDeviceHost(overrideIp ?? ipRef.current);
-      if (!target || !isValidDeviceHost(target)) {
-        if (force) setError("올바른 기기 IP / 터널 URL을 입력하세요");
+      let primary = (overrideIp ?? ipRef.current ?? "auto").trim();
+      if (!primary) primary = "auto";
+      if (!primary) primary = "auto";
+      const isAuto = primary.toLowerCase() === "auto" || primary.toLowerCase() === "bridge";
+
+      if (!isAuto && !isValidDeviceHost(primary)) {
+        if (force) setError("올바른 기기 IP / 터널 URL / auto");
         return null;
       }
-      // Always allow force connect even if previous poll stuck
       if (busy.current && !force) return lastGood.current;
       busy.current = true;
       if (force) setStatus("connecting");
 
       try {
         let lastErr = "";
+        const candidates: string[] = [];
+        if (isAuto || (isCloudHostedPage() && isPrivateIPv4(primary))) {
+          candidates.push("auto");
+        }
+        if (!isAuto) candidates.push(primary);
+        const tun = getStoredTunnel();
+        if (tun && !candidates.includes(tun)) candidates.push(tun);
 
-        // Proxy first (Netlify function / home server)
-        for (let a = 1; a <= 2; a++) {
-          try {
-            const ac = new AbortController();
-            const timer = window.setTimeout(() => ac.abort(), 16_000);
-            const res = await fetch(
-              `/api/device?ip=${encodeURIComponent(target)}&_=${Date.now()}&n=${a}`,
-              { cache: "no-store", signal: ac.signal }
-            );
-            window.clearTimeout(timer);
-            const text = await res.text();
-            let j: Record<string, unknown>;
+        for (const target of candidates) {
+          for (let a = 1; a <= 2; a++) {
             try {
-              j = JSON.parse(text) as Record<string, unknown>;
-            } catch {
-              lastErr =
-                res.status === 404 || text.includes("<html")
-                  ? "앱 API 없음 — 배포 빌드 확인 필요"
-                  : `잘못된 응답 (HTTP ${res.status})`;
-              await sleep(250 * a);
-              continue;
+              const ac = new AbortController();
+              const timer = window.setTimeout(() => ac.abort(), 20_000);
+              const res = await fetch(
+                `/api/device?ip=${encodeURIComponent(target)}&_=${Date.now()}&n=${a}`,
+                { cache: "no-store", signal: ac.signal }
+              );
+              window.clearTimeout(timer);
+              const text = await res.text();
+              let j: Record<string, unknown>;
+              try {
+                j = JSON.parse(text) as Record<string, unknown>;
+              } catch {
+                lastErr = `잘못된 응답 HTTP ${res.status}`;
+                continue;
+              }
+              if (res.ok && j.online !== false) {
+                if (typeof j.publicTunnel === "string" && j.publicTunnel) {
+                  setStoredTunnel(String(j.publicTunnel));
+                }
+                return applyOk({
+                  ...(j as unknown as DeviceInfo),
+                  via: "proxy",
+                  ip: String(j.ip || target),
+                });
+              }
+              const hint = j.hint ? ` · ${String(j.hint)}` : "";
+              lastErr = `${String(j.error || `HTTP ${res.status}`)}${hint}`;
+            } catch (e) {
+              const m = e instanceof Error ? e.message : String(e);
+              lastErr = /abort/i.test(m)
+                ? "시간 초과"
+                : /Failed to fetch|NetworkError/i.test(m)
+                  ? "네트워크 오류"
+                  : m;
             }
-            if (res.ok && j.online !== false) {
-              return applyOk({
-                ...(j as unknown as DeviceInfo),
-                via: "proxy",
-                ip: String(j.ip || target),
-              });
-            }
-            const hint = j.hint ? String(j.hint) : "";
-            const base = String(j.error || `offline HTTP ${res.status}`);
-            lastErr = hint ? `${base} · ${hint}` : base;
-            // private LAN on cloud — don't waste second long retry the same way
-            if (j.privateLan && !j.triedTunnel) break;
-          } catch (e) {
-            const m = e instanceof Error ? e.message : String(e);
-            lastErr = /abort/i.test(m)
-              ? "시간 초과 — IP·터널·전원을 확인하세요"
-              : /Failed to fetch|NetworkError|Load failed|fetch/i.test(m)
-                ? "네트워크 오류 — 페이지 새로고침 후 다시 시도"
-                : m;
+            await sleep(200 * a);
           }
-          await sleep(300 * a);
+
+          if (!isAuto && canBrowserReachDevice(target)) {
+            const d = await fetchDeviceDirect(target, 7000);
+            if (d.ok) return applyOk(d.info);
+            lastErr = d.error || lastErr;
+          }
         }
 
-        // Browser direct (HTTP pages only — HTTPS blocks mixed content to LAN)
-        if (canBrowserReachDevice(target)) {
-          const d = await fetchDeviceDirect(target, 7000);
-          if (d.ok) return applyOk(d.info);
-          lastErr = d.error || lastErr;
+        if (isCloudHostedPage()) {
+          lastErr =
+            lastErr ||
+            "집 PC에서 start-device-bridge.bat 을 실행하세요. (한 번만 켜 두면 IP가 바뀌어도 자동 연결)";
         }
 
-        return applyFail(target, lastErr || "기기 연결 실패");
+        return applyFail(primary, lastErr || "기기 연결 실패");
       } finally {
         busy.current = false;
       }
@@ -194,18 +256,21 @@ export function useDeviceHashrate(enabled: boolean) {
 
   const connect = useCallback(
     async (rawIp: string) => {
-      const v = normalizeDeviceHost(rawIp);
-      if (!v || !isValidDeviceHost(v)) {
-        setError(
-          "허용되지 않는 주소 (LAN IP 예: 172.30.1.99 또는 https://…trycloudflare.com)"
-        );
-        setStatus("offline");
-        return null;
+      let v = normalizeDeviceHost(rawIp) || rawIp.trim();
+      if (!v) v = "auto";
+      if (v.toLowerCase() === "bridge") v = "auto";
+      if (v !== "auto" && !isValidDeviceHost(v)) {
+        // allow typing "auto"
+        if (v.toLowerCase() !== "auto") {
+          setError("허용되지 않는 주소 — auto / LAN IP / trycloudflare URL");
+          setStatus("offline");
+          return null;
+        }
+        v = "auto";
       }
-      // reset sticky busy so force connect always runs
       busy.current = false;
       setIp(v);
-      await sleep(20);
+      await sleep(30);
       return fetchDevice(v, true);
     },
     [setIp, fetchDevice]
@@ -216,34 +281,54 @@ export function useDeviceHashrate(enabled: boolean) {
     setError(null);
     try {
       const ac = new AbortController();
-      const timer = window.setTimeout(() => ac.abort(), 45_000);
+      const timer = window.setTimeout(() => ac.abort(), 55_000);
       const res = await fetch(
-        `/api/device/scan?hint=${encodeURIComponent(ipRef.current || "172.30.1.99")}&_=${Date.now()}`,
+        `/api/device/scan?hint=${encodeURIComponent(ipRef.current || "auto")}&_=${Date.now()}`,
         { cache: "no-store", signal: ac.signal }
       );
       window.clearTimeout(timer);
       const j = await res.json();
-      const found = (j.found || []) as Array<{ ip: string }>;
-      if (found[0]?.ip) {
-        // Prefer connecting with the stored/LAN hint if tunnel mapped it
-        const connectTarget = found[0].ip;
-        await connect(connectTarget);
+      const found = (j.found || []) as Array<{
+        ip: string;
+        connectIp?: string;
+      }>;
+
+      if (j.tunnel && typeof j.tunnel === "string") {
+        setStoredTunnel(j.tunnel);
+      }
+
+      if (found[0]) {
+        const connectTo = found[0].connectIp || found[0].ip || "auto";
+        if (found[0].ip && isPrivateIPv4(found[0].ip)) {
+          // show LAN IP in draft via return value; connect with auto/tunnel
+        }
+        await connect(connectTo === found[0].ip && isCloudHostedPage() ? "auto" : connectTo);
         return found;
       }
+
+      // Force auto connect on cloud
+      if (isCloudHostedPage()) {
+        const r = await connect("auto");
+        if (r) return [{ ip: r.ip || "auto" }];
+      }
+
       setError(
         String(
           j.note ||
-            "LAN에서 NerdQAxe를 못 찾았습니다. AxeOS 화면 IP를 넣고 기기 연결을 누르세요."
+            "장비를 찾지 못했습니다. 집 PC에서 start-device-bridge.bat 실행 후 다시 「자동 검색」"
         )
       );
       setStatus("offline");
       return [];
     } catch (e) {
       const m = e instanceof Error ? e.message : String(e);
+      // Last resort: auto
+      const r = await connect("auto");
+      if (r) return [{ ip: "auto" }];
       setError(
         /abort/i.test(m)
-          ? "자동 검색 시간 초과 — AxeOS IP를 직접 입력해 보세요"
-          : "자동 검색 실패 — Netlify면 채굴기 터널 URL을 기기 칸에 넣으세요"
+          ? "검색 시간 초과 — start-device-bridge.bat 실행 여부 확인"
+          : "검색 실패 — start-device-bridge.bat 을 실행하세요"
       );
       setStatus("offline");
       return [];
@@ -257,16 +342,20 @@ export function useDeviceHashrate(enabled: boolean) {
     }
     let cancelled = false;
     (async () => {
+      // Boot: always try auto on cloud first
+      if (!didBoot.current && isCloudHostedPage()) {
+        didBoot.current = true;
+        setIp("auto");
+        await sleep(50);
+        const r = await fetchDevice("auto", true);
+        if (cancelled) return;
+        if (!r) await scanLan();
+        return;
+      }
+      didBoot.current = true;
       const r = await fetchDevice(undefined, true);
       if (cancelled) return;
-      if (!r && !didAutoScan.current) {
-        didAutoScan.current = true;
-        const t = ipRef.current;
-        // Auto-scan once for private IPs (works on home server; on Netlify uses tunnel env)
-        if (t && !t.includes("trycloudflare") && !/^https:\/\//i.test(t)) {
-          await scanLan();
-        }
-      }
+      if (!r) await scanLan();
     })();
     const id = setInterval(() => {
       void fetchDevice(undefined, false);
@@ -275,7 +364,7 @@ export function useDeviceHashrate(enabled: boolean) {
       cancelled = true;
       clearInterval(id);
     };
-  }, [hasDevice, ip, fetchDevice, scanLan]);
+  }, [hasDevice, ip, fetchDevice, scanLan, setIp]);
 
   const liveGhs = Number(device?.hashRateGhs) || 0;
   const liveHs = Number(device?.hashRateHs) || 0;
@@ -289,11 +378,12 @@ export function useDeviceHashrate(enabled: boolean) {
     status,
     refresh: () => {
       busy.current = false;
-      return fetchDevice(undefined, true);
+      return fetchDevice(isCloudHostedPage() ? "auto" : undefined, true);
     },
     connect,
     scanLan,
     hasLiveHashrate: !!(device?.online && (liveHs > 0 || liveGhs > 0)),
     isLivePoll: !!(device?.live && device?.online),
+    isCloud: typeof window !== "undefined" ? isCloudHostedPage() : false,
   };
 }
