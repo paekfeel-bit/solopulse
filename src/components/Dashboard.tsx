@@ -55,6 +55,7 @@ import { NotifyBell } from "./NotifyBell";
 import { BtcDisclaimer } from "./BtcDisclaimer";
 import { LightningTip } from "./LightningTip";
 import { BottomNav, type DashTab } from "./BottomNav";
+import { BridgePanel } from "./BridgePanel";
 
 interface Props {
   address: string;
@@ -780,8 +781,31 @@ export function Dashboard({ address, onLogout }: Props) {
                   >
                     {locale === "ko" ? "Agent 갱신" : "Refresh agent"}
                   </button>
+                  <button
+                    type="button"
+                    className="text-[11px] px-3 py-1.5 rounded-lg border border-amber-600/50 text-amber-300"
+                    onClick={() => setTab("bridge")}
+                  >
+                    {locale === "ko" ? "브리지 탭 →" : "Bridge tab →"}
+                  </button>
                 </div>
               </div>
+
+              {/* Bridge is core — always on home, not removed */}
+              <BridgePanel
+                compact
+                locale={locale}
+                address={address}
+                boardLive={boardLive}
+                hashRateGhs={
+                  boardLive
+                    ? deviceHsLive / 1e9
+                    : agent.hashRateGhs || 0
+                }
+                hostIp={agent.hostIp || deviceHr.device?.ip || ""}
+                staleMs={deviceAgeMs ?? agent.staleMs}
+                agentStatus={agent.agentStatus}
+              />
 
               <div className="grid grid-cols-2 gap-2 pt-1">
                 <div className="rounded-lg bg-[var(--bg)] border border-[var(--border)] px-2.5 py-2 min-w-0">
@@ -1027,60 +1051,66 @@ export function Dashboard({ address, onLogout }: Props) {
           </div>
         )}
 
-        {/* ===== TAB: more (link-only product info) ===== */}
-        {tab === "more" && (
-          <section className="rounded-2xl border border-stone-700 bg-gradient-to-b from-stone-900 to-stone-950 p-4 space-y-3">
-            <div className="text-[10px] uppercase tracking-[0.25em] text-emerald-600 font-semibold">
-              LINK ONLY · NO INSTALL
-            </div>
-            <h2 className="text-lg font-bold text-stone-100">
-              {locale === "ko"
-                ? "링크만으로 모바일·PC 사용"
-                : "Mobile & PC from the link alone"}
-            </h2>
-            <div className="text-sm font-mono px-3 py-2 rounded-lg border border-emerald-600/40 bg-emerald-950/30 text-emerald-300">
-              {locale === "ko"
-                ? "브리지·앱 다운로드 없음 · 주소 입력만"
-                : "No bridge · no app download · just your address"}
-            </div>
-            <div className="text-[11px] text-stone-400 leading-relaxed space-y-2">
+        {/* ===== TAB: bridge (CORE — never removed) ===== */}
+        {tab === "bridge" && (
+          <div className="space-y-3">
+            <BridgePanel
+              locale={locale}
+              address={address}
+              boardLive={boardLive}
+              hashRateGhs={
+                boardLive ? deviceHsLive / 1e9 : agent.hashRateGhs || 0
+              }
+              hostIp={agent.hostIp || deviceHr.device?.ip || ""}
+              staleMs={deviceAgeMs ?? agent.staleMs}
+              agentStatus={agent.agentStatus}
+            />
+            <section className="rounded-2xl border border-stone-700 bg-stone-950 p-4 space-y-2 text-[11px] text-stone-400 leading-relaxed">
+              <h3 className="text-sm font-semibold text-stone-200">
+                {locale === "ko"
+                  ? "왜 사이트에 브리지가 필요한가"
+                  : "Why the bridge belongs in the product"}
+              </h3>
               <p>
                 {locale === "ko"
-                  ? "공유받은 링크를 폰이나 PC 브라우저에서 열고, 채굴 주소만 넣으면 해시·확률·차트·네트워크가 동작합니다. 제3자는 bat/브리지를 받을 필요가 없습니다."
-                  : "Open the shared link in any phone or PC browser, enter your payout address, and hashrate, odds, charts, and network data work. Third parties never download a bridge."}
+                  ? "웹(Railway)은 집 사설 IP(172/192.168)에 직접 들어갈 수 없습니다. 브리지가 마이너를 읽고 사이트로 밀어 줍니다. 풀 통계만 볼 때는 브리지 없이도 되지만, 보드 실측·소스엔진 컨택에는 브리지가 필수입니다."
+                  : "The cloud site cannot open private LAN IPs. The bridge reads the miner and pushes into the site. Pool-only viewing works without it; live board + source engine require the bridge."}
               </p>
-              <p className="text-stone-500">
-                {locale === "ko"
-                  ? "데이터 출처: 솔로 풀(API) — 인터넷에서 바로 조회. 집 안 마이너 IP는 사용하지 않습니다."
-                  : "Data source: solo pool APIs on the public internet. No private home miner IP required."}
+              <p className="font-mono text-[10px] text-stone-500 bg-black/40 rounded-lg p-2">
+                [NerdQAxe] ←LAN→ [start-bridge.bat] ←WSS→ [solopulse.railway] ←HTTPS→ [폰/PC]
               </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => void handleRefresh()}
-              className="w-full rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-sm py-3"
-            >
-              {locale === "ko" ? "대시보드 새로고침" : "Refresh dashboard"}
-            </button>
-            <div className="flex flex-wrap justify-center gap-2 pt-2">
-              <a
-                href="https://x.com/medbedeee"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-full border border-stone-700 px-4 py-2 text-xs text-stone-400"
+              <button
+                type="button"
+                onClick={() => void agent.refresh()}
+                className="w-full rounded-xl bg-amber-500 text-stone-950 font-bold text-sm py-3"
               >
-                𝕏 {t("feedback")}
-              </a>
-              <LightningTip variant="pill" />
-            </div>
-            <p className="text-center text-[10px] text-stone-600">
-              <BtcDisclaimer className="align-middle" />
-            </p>
-          </section>
+                {locale === "ko" ? "브리지 상태 새로고침" : "Refresh bridge status"}
+              </button>
+              <div className="flex flex-wrap justify-center gap-2 pt-1">
+                <a
+                  href="https://x.com/medbedeee"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 rounded-full border border-stone-700 px-4 py-2 text-xs text-stone-400"
+                >
+                  𝕏 {t("feedback")}
+                </a>
+                <LightningTip variant="pill" />
+              </div>
+              <p className="text-center text-[10px] text-stone-600">
+                <BtcDisclaimer className="align-middle" />
+              </p>
+            </section>
+          </div>
         )}
       </main>
 
-      <BottomNav tab={tab} onChange={setTab} locale={locale} />
+      <BottomNav
+        tab={tab}
+        onChange={setTab}
+        locale={locale}
+        bridgeLive={boardLive}
+      />
 
       {dash.celebration && (
         <Celebration

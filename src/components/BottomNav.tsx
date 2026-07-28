@@ -1,6 +1,6 @@
 "use client";
 
-export type DashTab = "home" | "engine" | "odds" | "chart" | "more";
+export type DashTab = "home" | "engine" | "odds" | "chart" | "bridge";
 
 const TABS: {
   id: DashTab;
@@ -12,18 +12,20 @@ const TABS: {
   { id: "engine", icon: "⚡", labelKo: "엔진", labelEn: "Engine" },
   { id: "odds", icon: "🎲", labelKo: "확률", labelEn: "Odds" },
   { id: "chart", icon: "📈", labelKo: "차트", labelEn: "Charts" },
-  { id: "more", icon: "ℹ️", labelKo: "안내", labelEn: "Info" },
+  { id: "bridge", icon: "🔗", labelKo: "브리지", labelEn: "Bridge" },
 ];
 
 export function BottomNav({
   tab,
   onChange,
   locale,
+  bridgeLive,
 }: {
   tab: DashTab;
   onChange: (t: DashTab) => void;
   locale: string;
-  /** @deprecated */
+  /** Green when board bridge streaming */
+  bridgeLive?: boolean;
   agentLive?: boolean;
 }) {
   return (
@@ -52,6 +54,13 @@ export function BottomNav({
               <span className="text-[9px] font-medium tracking-tight leading-none">
                 {label}
               </span>
+              {t.id === "bridge" && (
+                <span
+                  className={`absolute top-1.5 right-2 h-1.5 w-1.5 rounded-full ${
+                    bridgeLive ? "bg-emerald-400" : "bg-amber-500"
+                  }`}
+                />
+              )}
               {active && (
                 <span className="absolute -top-px left-1/2 -translate-x-1/2 w-6 h-0.5 rounded-full bg-amber-500" />
               )}

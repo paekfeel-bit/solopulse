@@ -6,10 +6,9 @@ import { useSearchParams } from "next/navigation";
 import { toClientId, clientIdShort } from "@/lib/clientId";
 
 /**
- * Public page for third-party users:
- * - Website alone = full pool dashboard (no install)
- * - Optional Device Link = one download from THIS page (home PC)
- * Browser cannot become the LAN bridge (security) — download is the productized path.
+ * CORE product page — Local Bridge download (never removed).
+ * Site UI + Bridge = live board hashrate → Source Engine.
+ * Browser cannot reach private LAN alone; this is the in-product path.
  */
 function BridgePageInner() {
   const sp = useSearchParams();
@@ -37,23 +36,22 @@ function BridgePageInner() {
           <Link href="/" className="text-sm text-amber-500 hover:underline">
             ← SoloPulse
           </Link>
-          <span className="text-[10px] uppercase tracking-widest text-stone-500">
-            Device Link
+          <span className="text-[10px] uppercase tracking-widest text-amber-500">
+            Local Bridge · CORE
           </span>
         </div>
 
         <header className="space-y-2">
           <h1 className="text-2xl font-bold tracking-tight">
-            링크만으로 충분할까요?
+            SoloPulse Bridge (필수 연동)
           </h1>
           <p className="text-sm text-stone-400 leading-relaxed">
-            <strong className="text-stone-200">예 — 풀(pool) 모니터링</strong>은
-            웹만 열면 됩니다. BTC 주소 입력 → 해시·확률·차트.
+            브리지는 사이트에서 <strong className="text-stone-200">빼지 않습니다</strong>.
+            웹 UI + 집 PC 브리지가 한 제품입니다.
           </p>
           <p className="text-sm text-stone-400 leading-relaxed">
-            <strong className="text-stone-200">집 마이너 실시간</strong>
-            (온도·보드 해시)만 선택 설치가 필요합니다. 인터넷 사이트가 집 안
-            IP로 직접 들어갈 수 없기 때문입니다.
+            <strong className="text-amber-300">보드 실시간 해시 · 소스엔진 컨택</strong>은
+            브리지가 마이너를 읽어 Railway로 밀어 줘야 합니다.
           </p>
         </header>
 
