@@ -45,6 +45,8 @@ import { SourceEngineLive } from "./SourceEngineLive";
 import { AnalogGauge } from "./AnalogGauge";
 import { BestShareBar } from "./BestShareBar";
 import { HashrateChart } from "./HashrateChart";
+import { BtcHourlyChart } from "./BtcHourlyChart";
+import { DifficultyChart } from "./DifficultyChart";
 import { NetworkBar } from "./NetworkBar";
 import { MempoolBlocks } from "./MempoolBlocks";
 import { Celebration } from "./Celebration";
@@ -807,7 +809,13 @@ export function Dashboard({ address, onLogout }: Props) {
         )}
 
         {/* ===== TAB: chart ===== */}
-        {tab === "chart" && <HashrateChart samples={chartSamples} />}
+        {tab === "chart" && (
+          <div className="space-y-3">
+            <HashrateChart samples={chartSamples} />
+            <BtcHourlyChart />
+            <DifficultyChart />
+          </div>
+        )}
 
         {/* ===== TAB: network ===== */}
         {tab === "network" && (

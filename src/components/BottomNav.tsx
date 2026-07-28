@@ -17,7 +17,7 @@ const TABS: {
   { id: "cluster", icon: "◎", labelKo: "계기판", labelEn: "Gauges" },
   { id: "engine", icon: "⚡", labelKo: "엔진", labelEn: "Engine" },
   { id: "odds", icon: "🎲", labelKo: "확률", labelEn: "Odds" },
-  { id: "chart", icon: "📈", labelKo: "기록", labelEn: "Chart" },
+  { id: "chart", icon: "📈", labelKo: "차트", labelEn: "Charts" },
   { id: "network", icon: "🌐", labelKo: "네트워크", labelEn: "Net" },
   { id: "more", icon: "ℹ️", labelKo: "안내", labelEn: "Info" },
 ];
