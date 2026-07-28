@@ -1,13 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   disableNotifications,
   enableNotifications,
   getNotifyPermission,
+  isIosDevice,
+  isStandalonePwa,
   notificationsEnabled,
-  notify,
+  notifyAsync,
   TEMP_HOT_C,
+  type NotifyFailReason,
 } from "@/lib/notify";
 import { useI18n } from "@/lib/i18n";
 
@@ -21,20 +24,74 @@ function notifyCoverage(locale: string): string {
   return `Alerts: block found · strong share · source 90%+ · board overheat (≥${TEMP_HOT_C}°C)`;
 }
 
-/** SVG bell — orange when ON, black/dark when OFF */
+function failMessage(locale: string, reason?: NotifyFailReason): string {
+  if (locale === "ko") {
+    switch (reason) {
+      case "unsupported":
+        return "이 브라우저는 알림을 지원하지 않습니다";
+      case "insecure":
+        return "HTTPS 환경에서만 알림을 켤 수 있습니다";
+      case "denied":
+        return "알림이 차단됨 · 주소창 자물쇠 → 사이트 설정 → 알림 허용";
+      case "ios-pwa":
+        return "iPhone: 공유 → 홈 화면에 추가 후, 홈에서 앱으로 열어 🔔를 다시 눌러 주세요";
+      case "default":
+        return "권한 창에서 ‘허용’을 선택해 주세요";
+      default:
+        return "알림을 켤 수 없습니다. 브라우저 권한을 확인해 주세요";
+    }
+  }
+  if (locale === "ja") {
+    switch (reason) {
+      case "denied":
+        return "通知が拒否されています。ブラウザ設定で許可してください";
+      case "ios-pwa":
+        return "iPhone: 共有→ホーム画面に追加してから再度🔔";
+      default:
+        return "通知を有効にできません";
+    }
+  }
+  switch (reason) {
+    case "unsupported":
+      return "Notifications not supported in this browser";
+    case "insecure":
+      return "Notifications require HTTPS";
+    case "denied":
+      return "Blocked — open site settings (lock icon) → allow notifications";
+    case "ios-pwa":
+      return "iPhone: Share → Add to Home Screen, open from home, then tap 🔔 again";
+    case "default":
+      return "Choose Allow in the permission prompt";
+    default:
+      return "Could not enable notifications";
+  }
+}
+
+/** SVG bell — orange when ON, dark when OFF */
 export function NotifyBell() {
   const { t, locale } = useI18n();
   const [on, setOn] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  useEffect(() => {
+  const sync = useCallback(() => {
     setOn(notificationsEnabled());
   }, []);
 
-  function showToast(msg: string) {
+  useEffect(() => {
+    sync();
+    const onVis = () => sync();
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("focus", onVis);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("focus", onVis);
+    };
+  }, [sync]);
+
+  function showToast(msg: string, ms = 4500) {
     setToast(msg);
-    window.setTimeout(() => setToast(null), 3800);
+    window.setTimeout(() => setToast(null), ms);
   }
 
   async function toggle() {
@@ -45,57 +102,47 @@ export function NotifyBell() {
         disableNotifications();
         setOn(false);
         showToast(
-          locale === "ko"
-            ? "알림 꺼짐"
-            : locale === "ja"
-              ? "通知オフ"
-              : "Notifications off"
+          locale === "ko" ? "알림 꺼짐" : locale === "ja" ? "通知オフ" : "Notifications off"
+        );
+        return;
+      }
+
+      // Pre-hint for iOS Safari tab (most common “can't enable” case)
+      if (isIosDevice() && !isStandalonePwa() && getNotifyPermission() !== "granted") {
+        showToast(failMessage(locale, "ios-pwa"), 7000);
+      }
+
+      const res = await enableNotifications();
+      if (res.ok) {
+        setOn(true);
+        const body = notifyCoverage(locale);
+        const shown = await notifyAsync(
+          locale === "ko" ? "SoloPulse — 알림 켜짐" : "SoloPulse — Alerts on",
+          body,
+          "notify-on"
+        );
+        showToast(
+          shown
+            ? locale === "ko"
+              ? `알림 켜짐 ✓ · 테스트 알림 전송`
+              : locale === "ja"
+                ? `通知オン ✓ · テスト送信`
+                : `Alerts on ✓ · test notification sent`
+            : locale === "ko"
+              ? `알림 권한 켜짐 · 테스트 표시는 브라우저가 막았을 수 있음`
+              : `Permission granted · test toast may be blocked`,
+          5000
         );
       } else {
-        const res = await enableNotifications();
-        if (res.ok) {
-          setOn(true);
-          const body = notifyCoverage(locale);
-          notify("SoloPulse — 알림 켜짐", body, "notify-on");
-          showToast(
-            locale === "ko"
-              ? `알림 켜짐 ✓ · 과열≥${TEMP_HOT_C}°C 포함`
-              : locale === "ja"
-                ? `通知オン ✓ · 過熱≥${TEMP_HOT_C}°C`
-                : `Alerts on ✓ · overheat ≥${TEMP_HOT_C}°C`
-          );
-        } else {
-          setOn(false);
-          const perm = getNotifyPermission();
-          if (res.reason === "unsupported") {
-            showToast(
-              locale === "ko"
-                ? "이 브라우저는 알림 미지원"
-                : locale === "ja"
-                  ? "このブラウザは通知非対応"
-                  : "Notifications not supported"
-            );
-          } else if (perm === "denied" || res.reason === "denied") {
-            showToast(
-              locale === "ko"
-                ? "브라우저 설정에서 알림을 허용하세요"
-                : locale === "ja"
-                  ? "ブラウザ設定で通知を許可してください"
-                  : "Allow notifications in browser settings"
-            );
-          } else {
-            showToast(
-              locale === "ko"
-                ? "알림 권한이 필요합니다"
-                : locale === "ja"
-                  ? "通知の許可が必要です"
-                  : "Permission required"
-            );
-          }
-        }
+        setOn(false);
+        showToast(failMessage(locale, res.reason), 6500);
       }
+    } catch {
+      setOn(false);
+      showToast(failMessage(locale, "error"));
     } finally {
       setBusy(false);
+      sync();
     }
   }
 
@@ -103,7 +150,11 @@ export function NotifyBell() {
     <div className="relative">
       <button
         type="button"
-        onClick={toggle}
+        onClick={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          void toggle();
+        }}
         disabled={busy}
         aria-pressed={on}
         aria-label={on ? t("notifyOn") : t("notifyOff")}
@@ -113,18 +164,15 @@ export function NotifyBell() {
             : `${t("notifyOff")} — ${
                 locale === "ko"
                   ? "탭하여 켜기 (블록·셰어·소스·과열)"
-                  : locale === "ja"
-                    ? "タップでオン（ブロック・シェア・ソース・過熱）"
-                    : "Tap to enable (block · share · source · overheat)"
+                  : "Tap to enable alerts"
               }`
         }
-        className={`inline-flex items-center justify-center h-8 w-8 shrink-0 rounded-lg border transition active:scale-95 ${
+        className={`inline-flex items-center justify-center h-9 w-9 min-h-[2.25rem] min-w-[2.25rem] shrink-0 rounded-lg border transition active:scale-95 touch-manipulation ${
           on
             ? "border-orange-500 bg-orange-500 text-white shadow-md shadow-orange-500/40"
-            : "border-[var(--border)] bg-[var(--card)] text-[var(--muted)]"
-        } ${busy ? "opacity-60" : ""}`}
+            : "border-[var(--border)] bg-[var(--card)] text-[var(--muted)] hover:border-amber-600/50"
+        } ${busy ? "opacity-60 pointer-events-none" : ""}`}
       >
-        {/* Bell SVG */}
         <svg
           width="16"
           height="16"
@@ -149,7 +197,10 @@ export function NotifyBell() {
         </svg>
       </button>
       {toast && (
-        <div className="absolute right-0 top-full mt-1 z-50 max-w-[16rem] sm:max-w-xs text-right rounded-lg bg-zinc-900 text-white text-[10px] leading-snug px-2.5 py-1.5 shadow-lg border border-zinc-700 break-words">
+        <div
+          role="status"
+          className="absolute right-0 top-full mt-1.5 z-[80] w-[min(18rem,calc(100vw-2rem))] text-left rounded-lg bg-zinc-900 text-white text-[11px] leading-snug px-3 py-2 shadow-lg border border-zinc-600 break-words"
+        >
           {toast}
         </div>
       )}

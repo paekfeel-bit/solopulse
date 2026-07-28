@@ -1,5 +1,5 @@
-/* SoloPulse service worker — installable PWA shell */
-const CACHE = "solopulse-v4";
+/* SoloPulse service worker — PWA shell + system notifications */
+const CACHE = "solopulse-v5";
 const PRECACHE = ["/", "/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {
@@ -51,4 +51,43 @@ self.addEventListener("fetch", (event) => {
       })
       .catch(() => caches.match(request).then((r) => r || caches.match("/")))
   );
+});
+
+/** Open / focus app when user taps a notification */
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const target =
+    (event.notification.data && event.notification.data.url) || "/";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
+      for (const client of clientList) {
+        if ("focus" in client) {
+          client.navigate(target);
+          return client.focus();
+        }
+      }
+      if (self.clients.openWindow) {
+        return self.clients.openWindow(target);
+      }
+    })
+  );
+});
+
+/** Allow page to request SW-backed notifications via postMessage */
+self.addEventListener("message", (event) => {
+  const data = event.data || {};
+  if (data.type === "SHOW_NOTIFICATION" && data.title) {
+    event.waitUntil(
+      self.registration.showNotification(data.title, {
+        body: data.body || "",
+        tag: data.tag || "solopulse",
+        icon: "/icons/icon-192.png",
+        badge: "/icons/icon-192.png",
+        data: { url: data.url || "/", tag: data.tag || "solopulse" },
+        requireInteraction: Boolean(
+          data.tag && (String(data.tag).startsWith("block") || String(data.tag).startsWith("temp"))
+        ),
+      })
+    );
+  }
 });
