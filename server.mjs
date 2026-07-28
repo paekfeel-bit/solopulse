@@ -31,15 +31,35 @@ function verifyKey(key) {
 }
 
 function broadcast(clientId, packet) {
-  const set = watchers.get(clientId);
-  if (!set) return;
   const msg = JSON.stringify(packet);
-  for (const ws of set) {
-    if (ws.readyState === 1) {
-      try {
-        ws.send(msg);
-      } catch {
-        /* */
+  const sendTo = (set) => {
+    if (!set) return;
+    for (const ws of set) {
+      if (ws.readyState === 1) {
+        try {
+          ws.send(msg);
+        } catch {
+          /* */
+        }
+      }
+    }
+  };
+  sendTo(watchers.get(clientId));
+  // Always also hit "default" watchers (legacy bridge / home solo)
+  if (clientId !== "default") sendTo(watchers.get("default"));
+}
+
+/** Fan-out live miner packets to EVERY browser tab (one home miner stream). */
+function broadcastAllBrowsers(packet) {
+  const msg = JSON.stringify(packet);
+  for (const set of watchers.values()) {
+    for (const ws of set) {
+      if (ws.readyState === 1) {
+        try {
+          ws.send(msg);
+        } catch {
+          /* */
+        }
       }
     }
   }
@@ -177,8 +197,9 @@ app
               ts: Date.now(),
             };
             lastMiner.set(cid, out);
-            // Only the owner's clientId (no cross-user fan-out)
-            broadcast(cid, out);
+            lastMiner.set("default", out);
+            // All open dashboards receive live board hashrate (home solo path)
+            broadcastAllBrowsers(out);
             try {
               const tel = telFromBridge(cid, {
                 ...data,
@@ -187,18 +208,17 @@ app
               if (!tel.collectedAt || tel.collectedAt < Date.now() - 5_000) {
                 tel.collectedAt = Date.now();
               }
-              await putStream(
-                tel,
-                {
-                  agentId: String(packet.agentId || "ws-bridge"),
-                  status: "STREAMING",
-                  version: "ws-1",
-                  devices: [String(data.hostIp || data.ip || "")].filter(Boolean),
-                  ts: Date.now(),
-                  lastError: null,
-                },
-                cid
-              );
+              const hb = {
+                agentId: String(packet.agentId || "ws-bridge"),
+                status: "STREAMING",
+                version: "ws-1",
+                devices: [String(data.hostIp || data.ip || "")].filter(Boolean),
+                ts: Date.now(),
+                lastError: null,
+              };
+              // Dual-store so login-by-address AND default both see the board
+              await putStream(tel, hb, cid);
+              if (cid !== "default") await putStream(tel, hb, "default");
             } catch (e) {
               console.error("store err", e.message || e);
             }
@@ -225,7 +245,12 @@ app
           ws.clientId = cid;
           if (!watchers.has(cid)) watchers.set(cid, new Set());
           watchers.get(cid).add(ws);
-          const last = lastMiner.get(cid);
+          // Also join default so bridge CLIENT_ID=default always reaches this tab
+          if (cid !== "default") {
+            if (!watchers.has("default")) watchers.set("default", new Set());
+            watchers.get("default").add(ws);
+          }
+          const last = lastMiner.get(cid) || lastMiner.get("default");
           if (last) {
             try {
               ws.send(JSON.stringify(last));

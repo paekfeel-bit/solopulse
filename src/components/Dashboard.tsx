@@ -97,9 +97,26 @@ export function Dashboard({ address, onLogout }: Props) {
     return selectStableHashrate(dash.user);
   }, [dash.user]);
 
-  // STRICT: Agent telemetry (preferred) then legacy proxy/tunnel.
+  /**
+   * BOARD GROUND TRUTH (required for Source Engine contact):
+   * 1) Live bridge/agent hashrate
+   * 2) Device proxy path
+   * Pool is display-only fallback — NEVER feed pool H into source engine.
+   */
   const deviceHsLive = (() => {
     if (agent.hasLiveHashrate && agent.hashRateHs > 0) return agent.hashRateHs;
+    if (agent.hasLiveHashrate && agent.hashRateGhs > 0)
+      return agent.hashRateGhs * 1e9;
+    // Soft: fresh agent sample even if flag flapped
+    if (
+      agent.telemetry &&
+      agent.staleMs < 90_000 &&
+      (agent.hashRateHs > 0 || agent.hashRateGhs > 0)
+    ) {
+      return agent.hashRateHs > 0
+        ? agent.hashRateHs
+        : agent.hashRateGhs * 1e9;
+    }
     const d = deviceHr.device;
     if (!d || !d.online) return 0;
     const ghs = Number(d.hashRateGhs);
@@ -108,21 +125,21 @@ export function Dashboard({ address, onLogout }: Props) {
     return Number.isFinite(hs) && hs > 0 ? hs : 0;
   })();
 
+  const boardLive = deviceHsLive > 0;
   const picked = pickDisplayHashrate({
-    deviceOnline:
-      agent.hasLiveHashrate ||
-      deviceHsLive > 0 ||
-      !!(deviceHr.device?.online && deviceHr.hasLiveHashrate),
+    deviceOnline: boardLive,
     deviceHs: deviceHsLive,
     poolStableHs: poolHr.displayHs || poolHr.instantHs || poolHr.stableHs,
   });
+  /** UI big number: board first, else pool */
   const shownHs = picked.hs;
-  const hrSource =
-    agent.hasLiveHashrate
-      ? "device"
-      : picked.source === "none"
-        ? "pool"
-        : picked.source;
+  /** Source engine / contact MUST use board only */
+  const engineHs = boardLive ? deviceHsLive : 0;
+  const hrSource = boardLive
+    ? "device"
+    : picked.source === "none"
+      ? "pool"
+      : picked.source;
   const deviceAgeMs = agent.collectedAt
     ? Math.max(0, nowTick - agent.collectedAt)
     : deviceHr.device?.fetchedAt != null
@@ -154,10 +171,11 @@ export function Dashboard({ address, onLogout }: Props) {
     0;
 
   const liveTick = useLiveOdds({
-    hashrateBase: shownHs,
+    // Prefer board H for odds when live; pool only as soft fallback
+    hashrateBase: engineHs > 0 ? engineHs : shownHs,
     difficulty,
     bestShare: bestForLadder || bestShare,
-    active: shownHs > 0 && difficulty > 0,
+    active: (engineHs > 0 || shownHs > 0) && difficulty > 0,
   });
 
   // Reset chart when address changes
@@ -434,6 +452,25 @@ export function Dashboard({ address, onLogout }: Props) {
         {/* ===== TAB: home (gauges + network) — first screen ===== */}
         {tab === "home" && (
           <>
+        {/* Board live strip — critical path */}
+        <div
+          className={`rounded-xl border px-3 py-2 text-[11px] font-mono ${
+            boardLive
+              ? "border-emerald-600/50 bg-emerald-950/40 text-emerald-300"
+              : "border-red-800/50 bg-red-950/30 text-red-300"
+          }`}
+        >
+          {boardLive
+            ? `BOARD LIVE · ${(deviceHsLive / 1e9).toFixed(1)} GH/s · ${
+                agent.hostIp || deviceHr.device?.ip || "—"
+              } · ${agent.tempC ?? deviceHr.device?.temp ?? "—"}°C · age ${
+                deviceAgeMs != null ? `${(deviceAgeMs / 1000).toFixed(0)}s` : "0s"
+              } · → Source Engine`
+            : locale === "ko"
+              ? "BOARD OFFLINE · 소스엔진 컨택 불가 · 아래 IP 연결/자동검색 또는 start-bridge.bat"
+              : "BOARD OFFLINE · source engine idle · connect IP / auto-scan / start-bridge.bat"}
+        </div>
+
         {/* Analog instrument cluster */}
         <section className="rounded-2xl border border-stone-700/90 bg-gradient-to-b from-stone-900/95 to-stone-950 p-3 sm:p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
           <div className="flex items-center justify-between gap-2 mb-2">
@@ -921,21 +958,30 @@ export function Dashboard({ address, onLogout }: Props) {
           <>
             {difficulty > 0 && (
               <SourceEngineLive
-                hashrateHs={shownHs}
+                hashrateHs={engineHs > 0 ? engineHs : 0}
                 networkDiff={difficulty}
                 bestShare={bestForLadder || bestShare}
-                live={hrSource === "device" && !deviceIsSticky}
+                live={boardLive && !deviceIsSticky}
                 pDay={liveTick?.display.pDay || 0}
-                confidence={
-                  agent.hasLiveHashrate ? 0.85 : hrSource === "device" ? 0.55 : 0.35
+                confidence={boardLive ? 0.92 : 0.15}
+                agentStatus={
+                  boardLive
+                    ? "STREAMING"
+                    : agent.agentStatus || deviceHr.status || "NO_BOARD"
                 }
-                agentStatus={agent.agentStatus}
               />
+            )}
+            {!boardLive && (
+              <div className="text-[11px] leading-relaxed text-amber-100 bg-amber-950/50 border border-amber-700/50 rounded-xl px-3 py-2.5">
+                {locale === "ko"
+                  ? "⚠ 보드 실시간 해시 없음 — 소스 엔진 컨택 불가. 홈 탭에서 IP 연결/자동검색, 또는 집 PC에서 start-bridge.bat 실행."
+                  : "⚠ No live board hashrate — source engine cannot contact. Connect IP / Auto scan on Home, or run start-bridge.bat."}
+              </div>
             )}
             {difficulty > 0 && (
               <SourceEngineHub
                 tick={liveTick}
-                hashrateBase={shownHs}
+                hashrateBase={engineHs > 0 ? engineHs : 0}
                 bestShare={bestForLadder || bestShare}
                 networkDiff={difficulty}
                 networkHashrateHs={Number(net?.hashrate) || 0}
@@ -952,8 +998,8 @@ export function Dashboard({ address, onLogout }: Props) {
                 foundBlocks={
                   agent.foundBlocks || deviceHr.device?.foundBlocks || 0
                 }
-                deviceOnline={agent.hasLiveHashrate || !!deviceHr.device?.online}
-                hasDevice={agent.agentOnline || deviceHr.hasDevice}
+                deviceOnline={boardLive}
+                hasDevice={boardLive || agent.agentOnline || deviceHr.hasDevice}
               />
             )}
           </>
@@ -965,7 +1011,7 @@ export function Dashboard({ address, onLogout }: Props) {
             <LiveOddsPanel tick={liveTick} />
             <SoloCasePanel
               tick={liveTick}
-              hashrateBase={shownHs}
+              hashrateBase={engineHs > 0 ? engineHs : shownHs}
               bestShare={bestForLadder || bestShare}
               networkDiff={difficulty}
             />
