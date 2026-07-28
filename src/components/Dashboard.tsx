@@ -375,7 +375,7 @@ export function Dashboard({ address, onLogout }: Props) {
       : "Solo miner";
 
   const toolBtn =
-    "inline-flex items-center justify-center h-8 px-2.5 text-[11px] rounded-lg border border-[var(--border)] text-[var(--muted)] shrink-0 leading-none";
+    "sp-tool-glow inline-flex items-center justify-center h-8 px-2.5 text-[11px] rounded-lg border border-[var(--border)] text-[var(--muted)] shrink-0 leading-none";
 
   return (
     <div className="relative min-h-dvh pb-[calc(4.5rem+env(safe-area-inset-bottom))] bg-[var(--bg)] text-[var(--fg)] overflow-x-clip">
@@ -426,7 +426,7 @@ export function Dashboard({ address, onLogout }: Props) {
               {theme === "dark" ? "☀️" : "🌙"}
             </button>
             <NotifyBell />
-            <a href="/hub" className={`${toolBtn} border-emerald-500/40 text-emerald-400`}>
+            <a href="/hub" className={toolBtn}>
               Hub
             </a>
             <a href="/cases" className={toolBtn}>
@@ -952,7 +952,6 @@ export function Dashboard({ address, onLogout }: Props) {
 
         {/* Network (merged into first screen) */}
         {net && <NetworkBar network={net} />}
-        <MempoolBlocks />
         {net && (
           <BestShareBar
             bestShare={Number(u.bestshare || bestForLadder || 0)}
@@ -1067,6 +1066,7 @@ export function Dashboard({ address, onLogout }: Props) {
             <HashrateChart samples={chartSamples} />
             <BtcHourlyChart />
             <DifficultyChart />
+            <MempoolBlocks />
           </div>
         )}
 

@@ -133,6 +133,29 @@ select {
   -webkit-tap-highlight-color: transparent;
 }
 
+/* Shared yellow glow for header tool buttons (hover + touch) */
+.sp-tool-glow {
+  transition:
+    border-color 0.15s ease,
+    color 0.15s ease,
+    background-color 0.15s ease,
+    box-shadow 0.15s ease;
+}
+.sp-tool-glow:hover,
+.sp-tool-glow:focus-visible {
+  border-color: rgb(251 191 36 / 0.85) !important;
+  color: rgb(253 224 71) !important;
+  background-color: rgb(245 158 11 / 0.15) !important;
+  box-shadow: 0 0 14px 2px rgba(250, 204, 21, 0.45);
+  outline: none;
+}
+.sp-tool-glow:active {
+  border-color: rgb(253 224 71) !important;
+  color: rgb(254 240 138) !important;
+  background-color: rgb(245 158 11 / 0.28) !important;
+  box-shadow: 0 0 18px 4px rgba(253, 224, 71, 0.55);
+}
+
 /* ── SoloPulse yellow laser: one lap + flash, then pause ── */
 @keyframes sp-pulse-laser-spin {
   0% {

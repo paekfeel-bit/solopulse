@@ -167,10 +167,10 @@ export function NotifyBell() {
                   : "Tap to enable alerts"
               }`
         }
-        className={`inline-flex items-center justify-center h-9 w-9 min-h-[2.25rem] min-w-[2.25rem] shrink-0 rounded-lg border transition active:scale-95 touch-manipulation ${
+        className={`sp-tool-glow inline-flex items-center justify-center h-9 w-9 min-h-[2.25rem] min-w-[2.25rem] shrink-0 rounded-lg border transition active:scale-95 touch-manipulation ${
           on
-            ? "border-orange-500 bg-orange-500 text-white shadow-md shadow-orange-500/40"
-            : "border-[var(--border)] bg-[var(--card)] text-[var(--muted)] hover:border-amber-600/50"
+            ? "border-amber-400 bg-amber-500 text-stone-950 shadow-[0_0_14px_2px_rgba(250,204,21,0.5)]"
+            : "border-[var(--border)] bg-[var(--card)] text-[var(--muted)]"
         } ${busy ? "opacity-60 pointer-events-none" : ""}`}
       >
         <svg
