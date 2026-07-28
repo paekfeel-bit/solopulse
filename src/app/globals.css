@@ -156,8 +156,8 @@ select {
   box-shadow: 0 0 18px 4px rgba(253, 224, 71, 0.55);
 }
 
-/* ── SoloPulse yellow laser: one lap + flash, then pause ── */
-@keyframes sp-pulse-laser-spin {
+/* ── Orange laser: only along layout card border line ── */
+@keyframes sp-border-laser-spin {
   0% {
     opacity: 0;
     transform: rotate(0deg);
@@ -165,11 +165,11 @@ select {
   3% {
     opacity: 1;
   }
-  40% {
+  42% {
     opacity: 1;
     transform: rotate(360deg);
   }
-  46% {
+  48% {
     opacity: 0;
     transform: rotate(360deg);
   }
@@ -179,91 +179,55 @@ select {
   }
 }
 
-@keyframes sp-pulse-flash {
+/* Thin edge flash only (box-shadow on outline — no fill wash) */
+@keyframes sp-border-laser-flash {
   0%,
-  38% {
+  40% {
     opacity: 0;
-    box-shadow: inset 0 0 0 0 transparent;
+    box-shadow: 0 0 0 0 transparent;
   }
-  42% {
+  45% {
     opacity: 1;
     box-shadow:
-      inset 0 0 48px 2px rgba(253, 224, 71, 0.4),
-      0 0 32px 6px rgba(250, 204, 21, 0.28);
+      0 0 0 1.5px rgba(249, 115, 22, 0.95),
+      0 0 10px 1px rgba(249, 115, 22, 0.55),
+      0 0 18px 2px rgba(234, 88, 12, 0.35);
   }
-  50% {
+  54% {
     opacity: 0;
-    box-shadow: inset 0 0 0 0 transparent;
+    box-shadow: 0 0 0 0 transparent;
   }
   100% {
     opacity: 0;
   }
 }
 
-@keyframes sp-pulse-frame-spin {
-  0% {
-    opacity: 0;
-    transform: rotate(0deg);
-  }
-  2% {
-    opacity: 0.9;
-  }
-  36% {
-    opacity: 0.9;
-    transform: rotate(360deg);
-  }
-  42% {
-    opacity: 0;
-    transform: rotate(360deg);
-  }
-  100% {
-    opacity: 0;
-    transform: rotate(360deg);
-  }
+.sp-border-laser-spin {
+  animation: sp-border-laser-spin var(--sp-pulse-period, 6.5s) linear infinite;
 }
 
-@keyframes sp-pulse-frame-flash {
-  0%,
-  34% {
-    opacity: 0;
-  }
-  38% {
-    opacity: 1;
-    background: radial-gradient(
-      ellipse 85% 55% at 50% 40%,
-      rgba(253, 224, 71, 0.14),
-      transparent 68%
-    );
-  }
-  46% {
-    opacity: 0;
-  }
-  100% {
-    opacity: 0;
-  }
+/* Cut interior so only the 2px rim shows the rotating laser */
+.sp-border-laser-cone {
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  padding: 2px;
+  border-radius: inherit;
 }
 
-.sp-pulse-laser {
-  animation: sp-pulse-laser-spin var(--sp-pulse-period, 6.5s) linear infinite;
-}
-
-.sp-pulse-flash {
-  animation: sp-pulse-flash var(--sp-pulse-period, 6.5s) linear infinite;
-}
-
-.sp-pulse-frame {
-  animation: sp-pulse-frame-spin 8s linear infinite;
-}
-
-.sp-pulse-frame-flash {
-  animation: sp-pulse-frame-flash 8s linear infinite;
+.sp-border-laser-flash {
+  animation: sp-border-laser-flash var(--sp-pulse-period, 6.5s) linear infinite;
+  border-radius: inherit;
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sp-pulse-laser,
-  .sp-pulse-flash,
-  .sp-pulse-frame,
-  .sp-pulse-frame-flash {
+  .sp-border-laser-spin,
+  .sp-border-laser-flash {
     animation: none !important;
     opacity: 0 !important;
   }

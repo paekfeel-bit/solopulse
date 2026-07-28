@@ -56,7 +56,7 @@ import { BtcDisclaimer } from "./BtcDisclaimer";
 import { LightningTip } from "./LightningTip";
 import { BottomNav, type DashTab } from "./BottomNav";
 import { BridgePanel } from "./BridgePanel";
-import { PulseLaser, PulseLaserFrame } from "./PulseLaser";
+import { PulseLaser } from "./PulseLaser";
 
 interface Props {
   address: string;
@@ -379,8 +379,6 @@ export function Dashboard({ address, onLogout }: Props) {
 
   return (
     <div className="relative min-h-dvh pb-[calc(4.5rem+env(safe-area-inset-bottom))] bg-[var(--bg)] text-[var(--fg)] overflow-x-clip">
-      {/* SoloPulse brand: yellow laser once around the viewport */}
-      <PulseLaserFrame />
       <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--header)] backdrop-blur-md pt-[env(safe-area-inset-top)]">
         <div className="max-w-3xl mx-auto px-3 py-2 space-y-2">
           {/* Row 1: brand + status */}

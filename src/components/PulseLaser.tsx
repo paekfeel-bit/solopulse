@@ -3,8 +3,8 @@
 import type { CSSProperties } from "react";
 
 /**
- * SoloPulse brand effect: yellow laser that races once around a panel
- * border, with a brief flash — then pauses and repeats.
+ * Orange laser that runs only along the layout card border line
+ * (mask-cut so interior is empty — no full-screen wash).
  */
 export function PulseLaser({
   className = "",
@@ -23,60 +23,32 @@ export function PulseLaser({
       className={`pointer-events-none absolute inset-0 z-[5] overflow-hidden rounded-[inherit] ${className}`}
       aria-hidden
     >
-      <div
-        className="absolute -inset-[1px] rounded-[inherit] sp-pulse-laser"
-        style={{
-          ...style,
-          background: `conic-gradient(
-            from 0deg,
-            transparent 0deg,
-            transparent 328deg,
-            rgba(250, 204, 21, 0.08) 338deg,
-            rgba(253, 224, 71, 0.95) 350deg,
-            #fef08a 355deg,
-            rgba(253, 224, 71, 0.9) 358deg,
-            transparent 360deg
-          )`,
-          WebkitMask:
-            "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
-          WebkitMaskComposite: "xor",
-          maskComposite: "exclude",
-          padding: "2px",
-        }}
-      />
-      <div className="absolute inset-0 rounded-[inherit] sp-pulse-flash" style={style} />
+      {/* Rotating conic light, masked to 2px border only */}
+      <div className="absolute -inset-[1px] rounded-[inherit] sp-border-laser-spin" style={style}>
+        <div
+          className="absolute inset-0 rounded-[inherit] sp-border-laser-cone"
+          style={{
+            background: `conic-gradient(
+              from 0deg,
+              transparent 0deg,
+              transparent 318deg,
+              rgba(194, 65, 12, 0) 330deg,
+              rgba(234, 88, 12, 0.55) 342deg,
+              rgba(249, 115, 22, 1) 350deg,
+              rgba(251, 146, 60, 1) 354deg,
+              rgba(249, 115, 22, 0.9) 357deg,
+              transparent 360deg
+            )`,
+          }}
+        />
+      </div>
+      {/* Edge flash only */}
+      <div className="absolute inset-0 rounded-[inherit] sp-border-laser-flash" style={style} />
     </div>
   );
 }
 
-/** Full-page border pulse (dashboard shell) */
+/** Full-page laser removed — card border only. */
 export function PulseLaserFrame() {
-  return (
-    <div
-      className="pointer-events-none fixed inset-0 z-[60] overflow-hidden"
-      aria-hidden
-    >
-      <div
-        className="absolute inset-0 sp-pulse-frame"
-        style={{
-          background: `conic-gradient(
-            from 0deg,
-            transparent 0deg,
-            transparent 318deg,
-            rgba(250, 204, 21, 0.05) 332deg,
-            rgba(253, 224, 71, 0.75) 348deg,
-            #fde047 354deg,
-            rgba(253, 224, 71, 0.75) 358deg,
-            transparent 360deg
-          )`,
-          WebkitMask:
-            "linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0)",
-          WebkitMaskComposite: "xor",
-          maskComposite: "exclude",
-          padding: "2px",
-        }}
-      />
-      <div className="absolute inset-0 sp-pulse-frame-flash" />
-    </div>
-  );
+  return null;
 }
