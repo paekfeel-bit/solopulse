@@ -436,25 +436,37 @@ export function Dashboard({ address, onLogout }: Props) {
               max={Math.max(6000, (shownHs / 1e9) * 1.25 || 5000)}
               label="HASHRATE"
               unit="GH/s"
+              live
+              decimals={1}
+              sensitiveScale
             />
             <AnalogGauge
-              value={deviceTemp ?? 0}
+              value={deviceTemp != null && Number.isFinite(deviceTemp) ? deviceTemp : 0}
               min={20}
               max={90}
               label="TEMP"
               unit="°C"
               warnAt={55}
               dangerAt={TEMP_HOT_C}
+              live={deviceTemp != null}
+              decimals={1}
+              sensitiveScale
             />
             <AnalogGauge
               value={
-                agent.powerW ??
-                (deviceHr.device?.power != null ? Number(deviceHr.device.power) : 0)
+                agent.powerW != null && Number.isFinite(agent.powerW)
+                  ? agent.powerW
+                  : deviceHr.device?.power != null
+                    ? Number(deviceHr.device.power)
+                    : 0
               }
               min={0}
               max={150}
               label="POWER"
               unit="W"
+              live
+              decimals={1}
+              sensitiveScale
             />
           </div>
           <div className="mt-2 text-center font-mono text-2xl sm:text-3xl text-stone-50 tabular-nums tracking-tight">
