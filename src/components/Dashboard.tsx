@@ -65,13 +65,17 @@ export function Dashboard({ address, onLogout }: Props) {
   const { t, cycleLocale, locale } = useI18n();
   const { theme, toggle } = useTheme();
   const dash = useMinerDashboard(address);
-  /** Link-only product: pool is primary. Device path optional/silent for power users. */
-  const deviceHr = useDeviceHashrate(false);
+  /** Device + agent paths restored (IP input / auto-scan on home). */
+  const deviceHr = useDeviceHashrate(true);
   const agent = useAgentTelemetry(true, address);
   const [tab, setTab] = useState<DashTab>("home");
   const [celebrateOpen, setCelebrateOpen] = useState(true);
   const [localHistory, setLocalHistory] = useState(() => loadHistory(address));
   const [nowTick, setNowTick] = useState(() => Date.now());
+  const [deviceIpDraft, setDeviceIpDraft] = useState(() =>
+    typeof window !== "undefined" ? getStoredDeviceIp() || "auto" : "auto"
+  );
+  const [deviceBusy, setDeviceBusy] = useState(false);
   const prevFound = useRef<number | null>(null);
 
   // 1s UI clock — age labels + force re-read of sticky age
@@ -168,10 +172,35 @@ export function Dashboard({ address, onLogout }: Props) {
 
   // Force-sync device IP from storage (first paint / AddressGate race)
   useEffect(() => {
-    const ip = getStoredDeviceIp();
-    if (ip && ip !== deviceHr.ip) deviceHr.setIp(ip);
+    const ip = getStoredDeviceIp() || "auto";
+    setDeviceIpDraft(ip);
+    if (ip !== deviceHr.ip) deviceHr.setIp(ip);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  async function handleDeviceConnect() {
+    setDeviceBusy(true);
+    try {
+      const raw = deviceIpDraft.trim() || "auto";
+      const info = await deviceHr.connect(raw);
+      if (info?.ip) setDeviceIpDraft(String(info.ip));
+      else setDeviceIpDraft(raw);
+    } finally {
+      setDeviceBusy(false);
+    }
+  }
+
+  async function handleDeviceScan() {
+    setDeviceBusy(true);
+    try {
+      setDeviceIpDraft("auto");
+      const found = await deviceHr.scanLan();
+      if (found?.[0]?.ip) setDeviceIpDraft(found[0].ip);
+      else setDeviceIpDraft("auto");
+    } finally {
+      setDeviceBusy(false);
+    }
+  }
 
   // Chart samples from active display source (device-first, 1s)
   useEffect(() => {
@@ -420,13 +449,17 @@ export function Dashboard({ address, onLogout }: Props) {
                     : "border-stone-600 text-stone-400"
               }`}
             >
-              {shownHs > 0 || !!dash.user
+              {agent.hasLiveHashrate || deviceHr.hasLiveHashrate
                 ? locale === "ko"
-                  ? "LIVE · 풀"
-                  : "LIVE · POOL"
-                : dash.loading
-                  ? "…"
-                  : "IDLE"}
+                  ? "LIVE · 기기"
+                  : "LIVE · DEVICE"
+                : shownHs > 0 || !!dash.user
+                  ? locale === "ko"
+                    ? "LIVE · 풀"
+                    : "LIVE · POOL"
+                  : dash.loading
+                    ? "…"
+                    : "IDLE"}
             </div>
           </div>
           <div className="flex flex-wrap justify-around gap-2 sm:gap-4">
@@ -623,19 +656,94 @@ export function Dashboard({ address, onLogout }: Props) {
                 {u.hashrate1hr || "—"} / 1d {u.hashrate1d || "—"}
               </div>
 
-              <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
-                <button
-                  type="button"
-                  className="text-[11px] px-3 py-2 rounded-lg font-medium border border-stone-700 text-stone-300"
-                  onClick={() => void handleRefresh()}
+              {/* Device connect panel — IP + auto search restored */}
+              <div className="rounded-xl border border-stone-700 bg-stone-900/60 p-2.5 space-y-2">
+                <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold">
+                  {locale === "ko" ? "기기 연결 (보드)" : "Device link (board)"}
+                </div>
+                <div className="flex flex-col sm:flex-row gap-1.5">
+                  <input
+                    type="text"
+                    value={deviceIpDraft}
+                    onChange={(e) => setDeviceIpDraft(e.target.value)}
+                    placeholder="auto / 172.30.1.33"
+                    spellCheck={false}
+                    className="flex-1 min-w-0 rounded-lg border border-stone-600 bg-stone-950 px-2.5 py-2 text-xs font-mono text-stone-100"
+                  />
+                  <div className="flex gap-1.5 shrink-0">
+                    <button
+                      type="button"
+                      disabled={deviceBusy}
+                      onClick={() => void handleDeviceConnect()}
+                      className="text-[11px] px-3 py-2 rounded-lg font-semibold bg-amber-600 text-stone-950 disabled:opacity-50"
+                    >
+                      {deviceBusy
+                        ? "…"
+                        : locale === "ko"
+                          ? "연결"
+                          : "Connect"}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={deviceBusy}
+                      onClick={() => void handleDeviceScan()}
+                      className="text-[11px] px-3 py-2 rounded-lg font-medium border border-amber-600/60 text-amber-300 disabled:opacity-50"
+                    >
+                      {locale === "ko" ? "자동 검색" : "Auto scan"}
+                    </button>
+                  </div>
+                </div>
+                <div className="flex flex-wrap gap-1">
+                  {["auto", "172.30.1.33", "172.30.1.70", "172.30.1.56"].map((ip) => (
+                    <button
+                      key={ip}
+                      type="button"
+                      onClick={() => setDeviceIpDraft(ip)}
+                      className="text-[9px] font-mono px-2 py-0.5 rounded border border-stone-700 text-stone-400 hover:text-stone-200"
+                    >
+                      {ip}
+                    </button>
+                  ))}
+                </div>
+                <div
+                  className={`text-[10px] font-mono leading-relaxed ${
+                    agent.hasLiveHashrate || deviceHr.hasLiveHashrate
+                      ? "text-emerald-400"
+                      : deviceHr.status === "connecting" || deviceBusy
+                        ? "text-amber-400"
+                        : "text-stone-400"
+                  }`}
                 >
-                  {locale === "ko" ? "새로고침" : "Refresh"}
-                </button>
-                <span className="text-[10px] text-stone-500 font-mono">
-                  {locale === "ko"
-                    ? "모바일·PC · 앱 설치 없음"
-                    : "Mobile & PC · no app install"}
-                </span>
+                  {agent.hasLiveHashrate
+                    ? `STREAMING · agent · ${agent.hostIp || "—"} · ${agent.hashRateGhs.toFixed(1)} GH/s`
+                    : deviceHr.hasLiveHashrate
+                      ? `ONLINE · device · ${deviceHr.device?.ip || deviceHr.ip} · ${(deviceHr.device?.hashRateGhs || 0).toFixed(1)} GH/s`
+                      : deviceHr.error
+                        ? `OFFLINE · ${deviceHr.error}`
+                        : deviceHr.status === "connecting" || deviceBusy
+                          ? locale === "ko"
+                            ? "연결/검색 중…"
+                            : "Connecting…"
+                          : locale === "ko"
+                            ? "미연결 · IP 입력 후 연결 또는 자동 검색 · 집 PC에 start-bridge.bat 권장"
+                            : "Not linked · enter IP or Auto scan · run start-bridge.bat on home PC"}
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    className="text-[11px] px-3 py-1.5 rounded-lg border border-stone-700 text-stone-300"
+                    onClick={() => void handleRefresh()}
+                  >
+                    {locale === "ko" ? "전체 새로고침" : "Refresh all"}
+                  </button>
+                  <button
+                    type="button"
+                    className="text-[11px] px-3 py-1.5 rounded-lg border border-stone-700 text-stone-300"
+                    onClick={() => void agent.refresh()}
+                  >
+                    {locale === "ko" ? "Agent 갱신" : "Refresh agent"}
+                  </button>
+                </div>
               </div>
 
               <div className="grid grid-cols-2 gap-2 pt-1">

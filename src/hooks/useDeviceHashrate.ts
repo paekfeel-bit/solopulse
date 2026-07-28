@@ -76,16 +76,9 @@ export function useDeviceHashrate(enabled: boolean) {
   }, [ip]);
 
   useEffect(() => {
-    // Migrate empty / force cloud default
+    // Keep user-chosen IP (including LAN). Empty → auto.
     let stored = getStoredDeviceIp();
     if (!stored || stored === "undefined") {
-      stored = isCloudHostedPage() ? "auto" : getStoredDeviceIp() || "auto";
-      setStoredDeviceIp(stored === "auto" ? "auto" : stored);
-    }
-    // On cloud, prefer auto so DHCP LAN IPs never block connect
-    if (isCloudHostedPage() && isPrivateIPv4(stored)) {
-      // keep LAN for display but connect via auto — store both
-      // actually switch to auto for reliability
       stored = "auto";
       setStoredDeviceIp("auto");
     }

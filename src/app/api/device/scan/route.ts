@@ -59,7 +59,7 @@ function expandCandidates(hint: string): string[] {
   } else {
     addSubnet(172, 30, 1);
   }
-  const prefer = [16, 8, 99, 67, 66, 97, 10, 1, 100, 50];
+  const prefer = [33, 70, 56, 50, 16, 8, 99, 67, 66, 97, 10, 1, 100];
   ips.sort((x, y) => {
     const dx = Number(x.split(".").pop());
     const dy = Number(y.split(".").pop());

@@ -87,19 +87,34 @@ export function useAgentTelemetry(enabled = true, clientId = "default") {
 
   const refresh = useCallback(async () => {
     try {
-      const q = new URLSearchParams({
-        clientId: cid,
-        _: String(Date.now()),
-      });
-      const res = await fetch(`/api/agent/telemetry?${q}`, {
-        cache: "no-store",
-      });
-      if (!res.ok) {
-        setError(`agent API HTTP ${res.status}`);
+      // Prefer this user's clientId; also try "default" (legacy bridge) and take freshest
+      const ids = cid === "default" ? ["default"] : [cid, "default"];
+      let best: AgentSnapshot | null = null;
+      for (const id of ids) {
+        const q = new URLSearchParams({
+          clientId: id,
+          _: String(Date.now()),
+        });
+        const res = await fetch(`/api/agent/telemetry?${q}`, {
+          cache: "no-store",
+        });
+        if (!res.ok) continue;
+        const j = (await res.json()) as AgentSnapshot;
+        const ghs = Number(j.telemetry?.hashRateGhs) || 0;
+        const at = Number(j.telemetry?.collectedAt) || Number(j.updatedAt) || 0;
+        if (!best) {
+          best = j;
+          continue;
+        }
+        const bg = Number(best.telemetry?.hashRateGhs) || 0;
+        const bat = Number(best.telemetry?.collectedAt) || Number(best.updatedAt) || 0;
+        if (ghs > 0 && (bg <= 0 || at >= bat)) best = j;
+      }
+      if (!best) {
+        setError("agent API unavailable");
         return null;
       }
-      const j = (await res.json()) as AgentSnapshot;
-      // Don't overwrite fresher WS data with stale HTTP empty
+      const j = best;
       setSnap((prev) => {
         if (
           prev?.telemetry &&

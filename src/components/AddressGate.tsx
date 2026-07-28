@@ -6,8 +6,11 @@ import {
   setStoredAddress,
   setStoredPool,
   getStoredPool,
+  getStoredDeviceIp,
+  setStoredDeviceIp,
   getLastAddress,
   rememberLastAddress,
+  normalizeDeviceHost,
 } from "@/lib/history";
 import { POOL_OPTIONS } from "@/lib/pools";
 import { useI18n, localeButtonLabel } from "@/lib/i18n";
@@ -34,9 +37,12 @@ export function AddressGate({ onSubmit, defaultAddress = "" }: Props) {
     if (typeof window === "undefined") return "solo.ckpool.org";
     return getStoredPool() || "solo.ckpool.org";
   });
+  const [deviceIp, setDeviceIp] = useState(() => {
+    if (typeof window === "undefined") return "auto";
+    return getStoredDeviceIp() || "auto";
+  });
   const [error, setError] = useState<string | null>(null);
 
-  // Fill from parent / localStorage when gate opens
   useEffect(() => {
     const remembered = (defaultAddress || getLastAddress()).trim();
     if (remembered) setAddress(remembered);
@@ -53,7 +59,8 @@ export function AddressGate({ onSubmit, defaultAddress = "" }: Props) {
     setStoredAddress(a);
     rememberLastAddress(a);
     setStoredPool(pool);
-    // Link-only product: no device IP / bridge required for third parties
+    const host = normalizeDeviceHost(deviceIp) || deviceIp.trim() || "auto";
+    setStoredDeviceIp(host === "bridge" ? "auto" : host);
     onSubmit(a);
   }
 
@@ -83,7 +90,7 @@ export function AddressGate({ onSubmit, defaultAddress = "" }: Props) {
         </div>
 
         <div className="text-center mb-8">
-          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-600 shadow-lg shadow-orange-500/30 mb-5">
+          <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-amber-400 to-orange-600 shadow-lg shadow-orange-600/30 mb-5">
             <span className="text-3xl" aria-hidden>
               ⚡
             </span>
@@ -92,12 +99,10 @@ export function AddressGate({ onSubmit, defaultAddress = "" }: Props) {
             Solo<span className="text-amber-500">Pulse</span>
           </h1>
           <p className="mt-3 text-sm text-[var(--muted)] leading-relaxed">{t("tagline")}</p>
-          <p className="mt-2 text-[11px] text-emerald-500/90 leading-relaxed font-medium">
+          <p className="mt-2 text-[11px] text-[var(--muted)] leading-relaxed">
             {locale === "ko"
-              ? "링크만 열면 됩니다 · 폰·PC 설치 없음 · 브리지 불필요"
-              : locale === "ja"
-                ? "リンクを開くだけ · スマホ/PC インストール不要"
-                : "Just open the link · phone & PC · no install, no bridge"}
+              ? "주소 + (선택) 기기 IP · auto 로 자동 검색"
+              : "Address + optional miner IP · auto scan"}
           </p>
         </div>
 
@@ -123,15 +128,6 @@ export function AddressGate({ onSubmit, defaultAddress = "" }: Props) {
               onChange={(e) => setAddress(e.target.value)}
               className="w-full rounded-xl bg-[var(--bg)] border border-[var(--border)] focus:border-amber-500 focus:ring-1 focus:ring-amber-500/50 outline-none px-4 py-3.5 text-sm font-mono text-[var(--fg)] placeholder:text-[var(--muted)] transition"
             />
-            {!!(defaultAddress || getLastAddress()) && (
-              <p className="mt-1.5 text-[10px] text-emerald-500/90">
-                {locale === "ko"
-                  ? "✓ 최근 사용 주소가 불러와졌습니다"
-                  : locale === "ja"
-                    ? "✓ 最近のアドレスを読み込みました"
-                    : "✓ Last used address loaded"}
-              </p>
-            )}
           </div>
 
           <div>
@@ -153,10 +149,53 @@ export function AddressGate({ onSubmit, defaultAddress = "" }: Props) {
                 </option>
               ))}
             </select>
-            <p className="mt-1 text-[10px] text-[var(--muted)]">
+          </div>
+
+          <div>
+            <label
+              htmlFor="deviceIp"
+              className="block text-xs font-medium uppercase tracking-wider text-[var(--muted)] mb-2"
+            >
+              {t("deviceIp")}{" "}
+              <span className="normal-case font-normal opacity-70">
+                ({locale === "ko" ? "보드 실측 · auto 가능" : "board · auto ok"})
+              </span>
+            </label>
+            <input
+              id="deviceIp"
+              type="text"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder="auto 또는 172.30.1.33"
+              value={deviceIp}
+              onChange={(e) => setDeviceIp(e.target.value)}
+              className="w-full rounded-xl bg-[var(--bg)] border border-[var(--border)] focus:border-amber-500 outline-none px-4 py-3 text-sm font-mono text-[var(--fg)] placeholder:text-[var(--muted)]"
+            />
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => setDeviceIp("auto")}
+                className="text-[10px] px-2.5 py-1 rounded-lg border border-amber-600/50 bg-amber-500/10 text-amber-400"
+              >
+                {locale === "ko" ? "auto (자동)" : "auto"}
+              </button>
+              {["172.30.1.33", "172.30.1.70", "172.30.1.56", "192.168.1.45"].map(
+                (ip) => (
+                  <button
+                    key={ip}
+                    type="button"
+                    onClick={() => setDeviceIp(ip)}
+                    className="text-[10px] px-2 py-1 rounded-lg border border-[var(--border)] text-[var(--muted)] hover:text-[var(--fg)] font-mono"
+                  >
+                    {ip.split(".").slice(-2).join(".")}
+                  </button>
+                )
+              )}
+            </div>
+            <p className="mt-1.5 text-[10px] text-[var(--muted)] leading-relaxed">
               {locale === "ko"
-                ? "주소가 없으면 다른 CK/Public 리전도 자동 검색"
-                : "Auto-scans other CK/Public regions if needed"}
+                ? "auto = 서버/브리지 자동 검색. 집 LAN이면 IP 직접 입력. 대시보드에서도 변경·재검색 가능."
+                : "auto = scan via server/bridge. Or type LAN IP. Editable again on dashboard."}
             </p>
           </div>
 
