@@ -97,7 +97,7 @@ async function discover() {
       /* */
     }
   }
-  const prefer = [56, 50, 16, 8, 99, 67, 66, 10, 1, 100];
+  const prefer = [33, 70, 56, 50, 16, 8, 99, 67, 66, 10, 1, 100];
   const ips = prefer.map((d) => `${SUBNET}.${d}`);
   for (let d = 1; d <= 254; d++) {
     if (!prefer.includes(d)) ips.push(`${SUBNET}.${d}`);
