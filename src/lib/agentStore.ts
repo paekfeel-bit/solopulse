@@ -1,14 +1,14 @@
 import type { AgentHeartbeat, AgentSnapshot, MinerTelemetry } from "./telemetry";
+import { toClientId } from "./clientId";
 
 /**
- * Shared agent snapshot store.
- * Atomic writes + sticky freshness so dashboard does not flap OFFLINE.
+ * Multi-tenant agent snapshot store (keyed by clientId = payout address).
+ * Sticky freshness so dashboards do not flap OFFLINE.
  */
 
 const DEFAULT_SNAPSHOT =
   "https://jsonblob.com/api/jsonBlob/019fa850-df81-7bea-af1b-2c18bc6361a8";
 
-/** Live window after last sample (2 min sticky) */
 const FRESH_MS = 120_000;
 
 function snapshotUrl(): string {
@@ -19,18 +19,45 @@ function snapshotUrl(): string {
   ).trim();
 }
 
-type StoreShape = {
+type Slot = {
   telemetry: MinerTelemetry | null;
   heartbeat: AgentHeartbeat | null;
   updatedAt: number;
 };
 
-let mem: StoreShape = { telemetry: null, heartbeat: null, updatedAt: 0 };
+type StoreShape = {
+  version: 2;
+  clients: Record<string, Slot>;
+  /** legacy single-slot fallback */
+  telemetry?: MinerTelemetry | null;
+  heartbeat?: AgentHeartbeat | null;
+  updatedAt?: number;
+};
+
+let mem: StoreShape = { version: 2, clients: {} };
 let writeChain: Promise<void> = Promise.resolve();
 
 function enqueueWrite(fn: () => Promise<void>): Promise<void> {
   writeChain = writeChain.then(fn, fn);
   return writeChain;
+}
+
+function emptySlot(): Slot {
+  return { telemetry: null, heartbeat: null, updatedAt: 0 };
+}
+
+function ensureClients(data: StoreShape): Record<string, Slot> {
+  if (data.clients && typeof data.clients === "object") return data.clients;
+  // migrate legacy single snapshot → default
+  const clients: Record<string, Slot> = {};
+  if (data.telemetry || data.heartbeat) {
+    clients.default = {
+      telemetry: data.telemetry || null,
+      heartbeat: data.heartbeat || null,
+      updatedAt: Number(data.updatedAt) || 0,
+    };
+  }
+  return clients;
 }
 
 async function remoteGet(): Promise<StoreShape | null> {
@@ -44,8 +71,8 @@ async function remoteGet(): Promise<StoreShape | null> {
     const j = (await res.json()) as StoreShape;
     if (!j || typeof j !== "object") return null;
     return {
-      telemetry: j.telemetry || null,
-      heartbeat: j.heartbeat || null,
+      version: 2,
+      clients: ensureClients(j),
       updatedAt: Number(j.updatedAt) || 0,
     };
   } catch {
@@ -70,57 +97,17 @@ async function remotePut(data: StoreShape): Promise<boolean> {
   }
 }
 
-export async function putTelemetry(t: MinerTelemetry) {
-  return enqueueWrite(async () => {
-    const now = Date.now();
-    const remote = await remoteGet();
-    if (remote && (remote.updatedAt || 0) > (mem.updatedAt || 0)) {
-      mem = {
-        telemetry: remote.telemetry || mem.telemetry,
-        heartbeat: remote.heartbeat || mem.heartbeat,
-        updatedAt: remote.updatedAt,
-      };
-    }
-    mem.telemetry = t;
-    mem.heartbeat = {
-      agentId: String(t.agentId || mem.heartbeat?.agentId || "local-agent"),
-      status: t.agentStatus || "STREAMING",
-      version: mem.heartbeat?.version || "1",
-      devices: [String(t.hostIp || "")].filter(Boolean),
-      ts: now,
-      lastError: null,
-    };
-    mem.updatedAt = now;
-    await remotePut(mem);
-  });
+function slotOf(id: string): Slot {
+  const cid = toClientId(id);
+  if (!mem.clients[cid]) mem.clients[cid] = emptySlot();
+  return mem.clients[cid];
 }
 
-export async function putHeartbeat(h: AgentHeartbeat) {
-  return enqueueWrite(async () => {
-    const remote = await remoteGet();
-    if (remote) {
-      mem = {
-        telemetry: remote.telemetry || mem.telemetry,
-        heartbeat: h,
-        updatedAt: Date.now(),
-      };
-    } else {
-      mem.heartbeat = h;
-      mem.updatedAt = Date.now();
-    }
-    await remotePut(mem);
-  });
-}
-
-export async function getSnapshot(): Promise<AgentSnapshot> {
-  const remote = await remoteGet();
-  if (remote && (remote.updatedAt || 0) >= (mem.updatedAt || 0)) {
-    mem = remote;
-  }
+function buildSnapshot(slot: Slot): AgentSnapshot {
   const now = Date.now();
-  const t = mem.telemetry;
-  const hb = mem.heartbeat;
-  const last = Math.max(t?.collectedAt || 0, hb?.ts || 0, mem.updatedAt || 0);
+  const t = slot.telemetry;
+  const hb = slot.heartbeat;
+  const last = Math.max(t?.collectedAt || 0, hb?.ts || 0, slot.updatedAt || 0);
   const staleMs = last ? now - last : Number.POSITIVE_INFINITY;
   const deviceFresh = Boolean(t && now - t.collectedAt < FRESH_MS);
   const agentOnline = Boolean(hb && now - hb.ts < FRESH_MS) || deviceFresh;
@@ -137,6 +124,77 @@ export async function getSnapshot(): Promise<AgentSnapshot> {
     updatedAt: last || 0,
     staleMs: Number.isFinite(staleMs) ? staleMs : 999_999_999,
   };
+}
+
+export async function putTelemetry(
+  t: MinerTelemetry,
+  clientId: string = "default"
+) {
+  const cid = toClientId(clientId);
+  return enqueueWrite(async () => {
+    const now = Date.now();
+    const remote = await remoteGet();
+    if (remote) {
+      mem = {
+        version: 2,
+        clients: { ...ensureClients(remote), ...mem.clients },
+      };
+    }
+    const slot = slotOf(cid);
+    slot.telemetry = t;
+    slot.heartbeat = {
+      agentId: String(t.agentId || slot.heartbeat?.agentId || "local-agent"),
+      status: t.agentStatus || "STREAMING",
+      version: slot.heartbeat?.version || "1",
+      devices: [String(t.hostIp || "")].filter(Boolean),
+      ts: now,
+      lastError: null,
+    };
+    slot.updatedAt = now;
+    await remotePut(mem);
+  });
+}
+
+export async function putHeartbeat(
+  h: AgentHeartbeat,
+  clientId: string = "default"
+) {
+  const cid = toClientId(clientId);
+  return enqueueWrite(async () => {
+    const remote = await remoteGet();
+    if (remote) {
+      mem = {
+        version: 2,
+        clients: { ...ensureClients(remote), ...mem.clients },
+      };
+    }
+    const slot = slotOf(cid);
+    slot.heartbeat = h;
+    slot.updatedAt = Date.now();
+    await remotePut(mem);
+  });
+}
+
+export async function getSnapshot(
+  clientId: string = "default"
+): Promise<AgentSnapshot> {
+  const cid = toClientId(clientId);
+  const remote = await remoteGet();
+  if (remote) {
+    mem = {
+      version: 2,
+      clients: { ...mem.clients, ...ensureClients(remote) },
+    };
+  }
+  // fallback: if this client empty but legacy default has data and cid is default
+  let slot = mem.clients[cid] || emptySlot();
+  if (!slot.telemetry && cid !== "default" && mem.clients.default?.telemetry) {
+    // no cross-user leak — only default may use default
+  }
+  if (!slot.telemetry && !slot.heartbeat && cid === "default") {
+    slot = mem.clients.default || slot;
+  }
+  return buildSnapshot(slot);
 }
 
 export function getExpectedAgentKey(): string {

@@ -133,6 +133,7 @@ function postTelemetryHttp(data, ghs) {
   return new Promise((resolve, reject) => {
     const body = JSON.stringify({
       schemaVersion: 1,
+      clientId: CLIENT_ID,
       deviceId: String(data.hostIp || minerIp || "device"),
       deviceModel: String(data.deviceModel || "NerdQAxe"),
       hostIp: String(data.hostIp || minerIp || ""),

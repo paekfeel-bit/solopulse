@@ -4,15 +4,18 @@ import {
   verifyAgentKey,
   getSnapshot,
 } from "@/lib/agentStore";
+import { toClientId } from "@/lib/clientId";
 import type { MinerTelemetry } from "@/lib/telemetry";
 
 export const dynamic = "force-dynamic";
 export const revalidate = 0;
 
 /**
- * Local Agent → Cloud ingest
+ * Local Agent / Bridge → Cloud ingest (multi-tenant)
  * POST /api/agent/telemetry
- * Header: x-agent-key: <SOLOPULSE_AGENT_KEY>
+ * Header: x-agent-key
+ * Body may include clientId (payout address)
+ * GET /api/agent/telemetry?clientId=bc1q...
  */
 export async function POST(req: NextRequest) {
   const key =
@@ -26,12 +29,19 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  let body: Partial<MinerTelemetry>;
+  let body: Partial<MinerTelemetry> & { clientId?: string };
   try {
-    body = (await req.json()) as Partial<MinerTelemetry>;
+    body = (await req.json()) as Partial<MinerTelemetry> & { clientId?: string };
   } catch {
     return NextResponse.json({ ok: false, error: "invalid json" }, { status: 400 });
   }
+
+  const clientId = toClientId(
+    body.clientId ||
+      req.headers.get("x-client-id") ||
+      req.nextUrl.searchParams.get("clientId") ||
+      "default"
+  );
 
   const ghs = Number(body.hashRateGhs) || 0;
   const tel: MinerTelemetry = {
@@ -78,16 +88,20 @@ export async function POST(req: NextRequest) {
     source: body.source || "axeos",
   };
 
-  await putTelemetry(tel);
+  await putTelemetry(tel, clientId);
   return NextResponse.json({
     ok: true,
+    clientId,
     receivedAt: Date.now(),
-    snapshot: await getSnapshot(),
+    snapshot: await getSnapshot(clientId),
   });
 }
 
-export async function GET() {
-  return NextResponse.json(await getSnapshot(), {
+export async function GET(req: NextRequest) {
+  const clientId = toClientId(
+    req.nextUrl.searchParams.get("clientId") || "default"
+  );
+  return NextResponse.json(await getSnapshot(clientId), {
     headers: { "Cache-Control": "no-store" },
   });
 }

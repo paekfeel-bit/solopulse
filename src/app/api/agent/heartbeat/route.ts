@@ -4,6 +4,7 @@ import {
   verifyAgentKey,
   getSnapshot,
 } from "@/lib/agentStore";
+import { toClientId } from "@/lib/clientId";
 import type { AgentHeartbeat } from "@/lib/telemetry";
 
 export const dynamic = "force-dynamic";
@@ -18,12 +19,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
   }
 
-  let body: Partial<AgentHeartbeat>;
+  let body: Partial<AgentHeartbeat> & { clientId?: string };
   try {
-    body = (await req.json()) as Partial<AgentHeartbeat>;
+    body = (await req.json()) as Partial<AgentHeartbeat> & { clientId?: string };
   } catch {
     return NextResponse.json({ ok: false, error: "invalid json" }, { status: 400 });
   }
+
+  const clientId = toClientId(
+    body.clientId ||
+      req.headers.get("x-client-id") ||
+      req.nextUrl.searchParams.get("clientId") ||
+      "default"
+  );
 
   const hb: AgentHeartbeat = {
     agentId: String(body.agentId || "local-agent"),
@@ -35,12 +43,19 @@ export async function POST(req: NextRequest) {
     ts: Date.now(),
     lastError: body.lastError ?? null,
   };
-  await putHeartbeat(hb);
-  return NextResponse.json({ ok: true, snapshot: await getSnapshot() });
+  await putHeartbeat(hb, clientId);
+  return NextResponse.json({
+    ok: true,
+    clientId,
+    snapshot: await getSnapshot(clientId),
+  });
 }
 
-export async function GET() {
-  return NextResponse.json(await getSnapshot(), {
+export async function GET(req: NextRequest) {
+  const clientId = toClientId(
+    req.nextUrl.searchParams.get("clientId") || "default"
+  );
+  return NextResponse.json(await getSnapshot(clientId), {
     headers: { "Cache-Control": "no-store" },
   });
 }

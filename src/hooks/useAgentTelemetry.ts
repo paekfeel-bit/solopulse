@@ -12,6 +12,10 @@ function wsUrl(clientId: string): string {
   return `${proto}//${window.location.host}/ws?role=browser&clientId=${id}`;
 }
 
+function normalizeClientId(id: string) {
+  return (id || "default").trim().replace(/\s+/g, "") || "default";
+}
+
 function telFromWs(data: Record<string, unknown>, clientId: string): MinerTelemetry {
   const ghsRaw = Number(data.hashrate ?? data.hashRateGhs ?? data.hashRate) || 0;
   const ghs = ghsRaw >= 1e11 ? ghsRaw / 1e9 : ghsRaw;
@@ -57,6 +61,7 @@ function telFromWs(data: Record<string, unknown>, clientId: string): MinerTeleme
  * 2) HTTP poll /api/agent/telemetry (Agent POST / bridge dual-write)
  */
 export function useAgentTelemetry(enabled = true, clientId = "default") {
+  const cid = normalizeClientId(clientId);
   const [snap, setSnap] = useState<AgentSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
@@ -82,7 +87,11 @@ export function useAgentTelemetry(enabled = true, clientId = "default") {
 
   const refresh = useCallback(async () => {
     try {
-      const res = await fetch(`/api/agent/telemetry?_=${Date.now()}`, {
+      const q = new URLSearchParams({
+        clientId: cid,
+        _: String(Date.now()),
+      });
+      const res = await fetch(`/api/agent/telemetry?${q}`, {
         cache: "no-store",
       });
       if (!res.ok) {
@@ -110,7 +119,7 @@ export function useAgentTelemetry(enabled = true, clientId = "default") {
       setError(e instanceof Error ? e.message : "agent fetch failed");
       return null;
     }
-  }, []);
+  }, [cid]);
 
   // HTTP poll fallback
   useEffect(() => {
@@ -129,11 +138,11 @@ export function useAgentTelemetry(enabled = true, clientId = "default") {
     const connect = () => {
       if (closed) return;
       try {
-        const url = wsUrl(clientId);
+        const url = wsUrl(cid);
         const ws = new WebSocket(url);
         wsRef.current = ws;
         ws.onopen = () => {
-          ws.send(JSON.stringify({ type: "subscribe", clientId }));
+          ws.send(JSON.stringify({ type: "subscribe", clientId: cid }));
         };
         ws.onmessage = (ev) => {
           try {
@@ -182,7 +191,7 @@ export function useAgentTelemetry(enabled = true, clientId = "default") {
         /* */
       }
     };
-  }, [enabled, clientId, applyTel]);
+  }, [enabled, cid, applyTel]);
 
   const t: MinerTelemetry | null = snap?.telemetry ?? null;
   const agentOnline = !!snap?.agentOnline;

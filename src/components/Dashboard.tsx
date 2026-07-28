@@ -64,8 +64,8 @@ export function Dashboard({ address, onLogout }: Props) {
   const { theme, toggle } = useTheme();
   const dash = useMinerDashboard(address);
   const deviceHr = useDeviceHashrate(true);
-  /** Production path: Local Agent push (home LAN → cloud). Never opens 172.x from cloud. */
-  const agent = useAgentTelemetry(true);
+  /** Multi-tenant: clientId = payout address. Bridge must use same CLIENT_ID. */
+  const agent = useAgentTelemetry(true, address);
   const [tab, setTab] = useState<DashTab>("cluster");
   const [celebrateOpen, setCelebrateOpen] = useState(true);
   const [localHistory, setLocalHistory] = useState(() => loadHistory(address));
@@ -253,16 +253,20 @@ export function Dashboard({ address, onLogout }: Props) {
     ]);
   }
 
-  /** Agent / device status for UI light — sticky: only fail when truly offline */
-  const deviceLinkStatus: "idle" | "loading" | "ok" | "fail" = (() => {
+  /**
+   * Pool-first product:
+   * - "ok" = home Device Link streaming
+   * - "idle" = optional off (NOT a hard failure — pool UI still full product)
+   * - "loading" = bridge seen but no hashrate yet
+   */
+  const deviceLinkStatus: "idle" | "loading" | "ok" | "optional" = (() => {
     if (agent.hasLiveHashrate) return "ok";
     if (agent.deviceOnline) return "ok";
     if (agent.agentOnline && agent.telemetry && Number(agent.hashRateGhs) > 0)
       return "ok";
-    // Grace period while first samples arrive
     if (agent.staleMs < 45_000 && agent.telemetry) return "ok";
     if (agent.agentOnline) return "loading";
-    return "fail";
+    return "optional";
   })();
 
   const deviceTemp =
@@ -481,22 +485,34 @@ export function Dashboard({ address, onLogout }: Props) {
           </div>
         </section>
 
-        {/* Agent connection panel */}
-        {!agent.agentOnline && (
-          <div className="text-[11px] leading-relaxed text-amber-100/95 bg-amber-950/40 border border-amber-700/40 rounded-xl px-3 py-2.5 space-y-1">
-            <div className="font-semibold text-amber-400">
+        {/* Pool-first: device link is optional enhancement, not a broken site */}
+        {deviceLinkStatus === "optional" && (
+          <div className="text-[11px] leading-relaxed text-stone-200 bg-stone-900/80 border border-stone-700 rounded-xl px-3 py-2.5 space-y-1.5">
+            <div className="font-semibold text-emerald-400/95">
               {locale === "ko"
-                ? "Local Agent 미실행 — 클라우드가 LAN IP를 직접 열지 않습니다"
-                : "Local Agent offline — cloud never opens LAN IPs"}
+                ? "풀 모드로 정상 작동 중 (설치 불필요)"
+                : "Running in pool mode (no install needed)"}
             </div>
-            <div className="text-[10px] text-amber-100/80 font-mono">
+            <div className="text-[10px] text-stone-400">
               {locale === "ko"
-                ? "집 PC(채굴기와 같은 Wi‑Fi)에서 start-local-agent.bat 실행. SOLOPULSE_CLOUD_URL 을 이 사이트 주소로 맞추세요."
-                : "On home PC (same Wi‑Fi as miner): run start-local-agent.bat with SOLOPULSE_CLOUD_URL set to this site."}
+                ? "웹만으로 해시·확률·차트를 볼 수 있습니다. 집 보드 실시간(온도 등)이 필요하면 Device Link를 선택 설치하세요 — 실패가 아닙니다."
+                : "Pool hashrate, odds, and charts work from the link alone. Optional Device Link adds live board stats — not an error."}
             </div>
-            {agent.error && (
-              <div className="text-[9px] font-mono text-red-300/90">{agent.error}</div>
-            )}
+            <div className="flex flex-wrap gap-2 pt-0.5">
+              <button
+                type="button"
+                onClick={() => setTab("agent")}
+                className="text-[10px] px-2.5 py-1.5 rounded-lg bg-amber-600/90 text-stone-950 font-semibold"
+              >
+                {locale === "ko" ? "기기 실시간 연결 (선택)" : "Optional device link"}
+              </button>
+              <a
+                href={`/bridge?address=${encodeURIComponent(address)}`}
+                className="text-[10px] px-2.5 py-1.5 rounded-lg border border-stone-600 text-stone-300"
+              >
+                {locale === "ko" ? "다운로드 페이지" : "Download page"}
+              </a>
+            </div>
           </div>
         )}
 
@@ -658,11 +674,11 @@ export function Dashboard({ address, onLogout }: Props) {
                 >
                   {agent.hasLiveHashrate
                     ? locale === "ko"
-                      ? "📡 Agent 연결됨"
-                      : "📡 Agent live"
+                      ? "📡 기기 연결됨"
+                      : "📡 Device live"
                     : locale === "ko"
-                      ? "📡 Agent 연결 방법"
-                      : "📡 How to link Agent"}
+                      ? "📡 기기 연결 (선택)"
+                      : "📡 Device link (optional)"}
                 </button>
                 <div className="flex items-center gap-1.5 min-w-0 flex-wrap">
                   <button
@@ -676,11 +692,17 @@ export function Dashboard({ address, onLogout }: Props) {
                     className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border shrink-0 ${
                       deviceLinkStatus === "ok"
                         ? "border-emerald-500/50 bg-emerald-500/10"
-                        : deviceLinkStatus === "fail"
-                          ? "border-red-500/50 bg-red-500/10"
+                        : deviceLinkStatus === "loading"
+                          ? "border-amber-500/50 bg-amber-500/10"
                           : "border-stone-700 bg-stone-900"
                     }`}
-                    title={agent.agentStatus}
+                    title={
+                      deviceLinkStatus === "ok"
+                        ? "Device Link STREAMING"
+                        : deviceLinkStatus === "loading"
+                          ? "Device Link connecting"
+                          : "Pool mode (device optional)"
+                    }
                   >
                     <span className="relative flex h-2.5 w-2.5">
                       {deviceLinkStatus === "ok" && (
@@ -690,8 +712,8 @@ export function Dashboard({ address, onLogout }: Props) {
                         className={`relative inline-flex rounded-full h-2.5 w-2.5 ${
                           deviceLinkStatus === "ok"
                             ? "bg-emerald-500"
-                            : deviceLinkStatus === "fail"
-                              ? "bg-red-500"
+                            : deviceLinkStatus === "loading"
+                              ? "bg-amber-500"
                               : "bg-zinc-600"
                         }`}
                       />
@@ -937,75 +959,71 @@ export function Dashboard({ address, onLogout }: Props) {
         {tab === "agent" && (
           <section className="rounded-2xl border border-stone-700 bg-gradient-to-b from-stone-900 to-stone-950 p-4 space-y-3">
             <div className="text-[10px] uppercase tracking-[0.25em] text-amber-600 font-semibold">
-              Local Agent · PIPELINE
+              PRODUCT · WEB + OPTIONAL DEVICE LINK
             </div>
             <h2 className="text-lg font-bold text-stone-100">
-              {locale === "ko" ? "기기 연결 (올바른 방법)" : "Device link (correct path)"}
+              {locale === "ko"
+                ? "웹은 완전체 · 기기는 선택 연결"
+                : "Web is complete · device is optional"}
             </h2>
             <div
               className={`text-sm font-mono px-3 py-2 rounded-lg border ${
                 agent.hasLiveHashrate
                   ? "border-emerald-600/50 bg-emerald-950/40 text-emerald-300"
-                  : "border-red-800/50 bg-red-950/30 text-red-300"
+                  : "border-stone-600 bg-stone-900/80 text-stone-300"
               }`}
             >
               {agent.hasLiveHashrate
                 ? `STREAMING · ${agent.hashRateGhs.toFixed(1)} GH/s · ${agent.hostIp || "—"} · ${agent.tempC ?? "—"}°C`
-                : `OFFLINE · ${agent.agentStatus}`}
+                : locale === "ko"
+                  ? `풀 모드 · 기기 링크 없음 (정상) · id ${address.slice(0, 12)}…`
+                  : `Pool mode · no device link (OK) · id ${address.slice(0, 12)}…`}
             </div>
 
             <div className="text-[11px] text-stone-400 leading-relaxed space-y-2">
-              <p className="font-semibold text-amber-400/90">
+              <p className="font-semibold text-emerald-400/90">
                 {locale === "ko"
-                  ? "왜 사이트에서 IP 입력이 실패하나"
-                  : "Why site IP entry fails"}
+                  ? "제3자 · 링크만 타는 사용자"
+                  : "Third parties · link only"}
               </p>
-              <ol className="list-decimal pl-4 space-y-1 text-stone-400">
-                <li>
-                  {locale === "ko"
-                    ? "Railway는 인터넷 클라우드 — 집 사설 IP(172/192.168)에 물리적으로 접속 불가"
-                    : "Railway is public cloud — cannot reach private 172/192.168 IPs"}
-                </li>
-                <li>
-                  {locale === "ko"
-                    ? "HTTPS 페이지 → HTTP 마이너 요청은 Mixed Content로 브라우저 차단"
-                    : "HTTPS page → HTTP miner is blocked (Mixed Content)"}
-                </li>
-                <li>
-                  {locale === "ko"
-                    ? "AxeOS는 CORS 헤더가 없어 브라우저 직접 fetch가 거부됨"
-                    : "AxeOS often has no CORS — browser fetch is rejected"}
-                </li>
-              </ol>
-              <p className="font-semibold text-emerald-400/90 pt-1">
-                {locale === "ko" ? "영구 해결 (Local Agent)" : "Permanent fix (Local Agent)"}
-              </p>
-              <pre className="text-[10px] font-mono bg-black/50 border border-stone-700 rounded-lg p-2.5 overflow-x-auto text-stone-300 whitespace-pre-wrap">{`[휴대폰] ─HTTPS─▶ [Railway UI + /ws]
-                              ▲ WebSocket
-               [start-bridge.bat 집 PC] ─HTTP─▶ [NerdQAxe]`}</pre>
               <p>
                 {locale === "ko"
-                  ? "방법1: 집 PC에서 start-bridge.bat (WebSocket 브리지) 또는 start-local-agent.bat 실행 — 창 유지."
-                  : "Method1: run start-bridge.bat (WebSocket) or start-local-agent.bat on home PC."}
+                  ? "설치 없이 주소만 입력하면 풀 통계·확률·차트가 동작합니다. 당신 bat 파일이 필요하지 않습니다."
+                  : "No install: enter payout address for pool stats, odds, charts. They never need your desktop .bat."}
               </p>
-              <div className="font-mono text-[10px] text-amber-200/90 bg-stone-900 border border-stone-700 rounded-lg p-2">
-                RAILWAY_WS=wss://solopulse-production.up.railway.app/ws
-                {"\n"}
-                SOLOPULSE_AGENT_KEY=solopulse-local-dev-key
-                {"\n"}
-                npm run bridge
-              </div>
-              <p className="text-stone-500">
+              <p className="font-semibold text-amber-400/90 pt-1">
                 {locale === "ko"
-                  ? "방법2: Capacitor 앱(CAPACITOR.md) — 같은 Wi‑Fi에서 직접 LAN 접근 가능."
-                  : "Method2: Capacitor app (CAPACITOR.md) for on-LAN native access."}
+                  ? "자기 집 보드 실시간 (선택)"
+                  : "Live home board (optional)"}
               </p>
+              <p>
+                {locale === "ko"
+                  ? "브라우저/클라우드가 집 안 IP로 직접 들어갈 수 없어, 사이트에서 받은 Device Link를 자기 PC에서 실행합니다. CLIENT_ID = 로그인 주소라 사용자끼리 데이터가 안 섞입니다."
+                  : "Cloud/browser cannot reach private miner IPs. Download Device Link from the site; CLIENT_ID = your address so users never mix data."}
+              </p>
+              <pre className="text-[10px] font-mono bg-black/50 border border-stone-700 rounded-lg p-2.5 overflow-x-auto text-stone-300 whitespace-pre-wrap">{`[누구나 폰/PC] ─링크─▶ [SoloPulse 웹 = 풀 완전체]
+                              ▲ 선택
+               [자기 집 PC Device Link] ─▶ [자기 마이너]`}</pre>
             </div>
 
+            <a
+              href={`/api/bridge/bundle?clientId=${encodeURIComponent(address)}&format=bat`}
+              className="block w-full text-center rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-sm py-3"
+            >
+              {locale === "ko"
+                ? "내 주소로 설정된 Bridge .bat 받기"
+                : "Download Bridge .bat for my address"}
+            </a>
+            <a
+              href={`/bridge?address=${encodeURIComponent(address)}`}
+              className="block w-full text-center rounded-xl border border-stone-600 text-stone-200 text-sm py-2.5"
+            >
+              {locale === "ko" ? "설치 가이드 / 제3자 안내" : "Install guide / for sharing"}
+            </a>
             <button
               type="button"
               onClick={() => void agent.refresh()}
-              className="w-full rounded-xl bg-amber-600/90 hover:bg-amber-500 text-stone-950 font-semibold text-sm py-3"
+              className="w-full rounded-xl border border-stone-700 text-stone-300 text-sm py-2.5"
             >
               {locale === "ko" ? "상태 새로고침" : "Refresh status"}
             </button>

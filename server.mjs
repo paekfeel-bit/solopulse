@@ -177,26 +177,28 @@ app
               ts: Date.now(),
             };
             lastMiner.set(cid, out);
-            // Fan-out to matching clientId + "default" so UI always receives
+            // Only the owner's clientId (no cross-user fan-out)
             broadcast(cid, out);
-            if (cid !== "default") broadcast("default", out);
             try {
               const tel = telFromBridge(cid, {
                 ...data,
                 agentId: packet.agentId,
               });
-              // Always stamp collectedAt so sticky online works
               if (!tel.collectedAt || tel.collectedAt < Date.now() - 5_000) {
                 tel.collectedAt = Date.now();
               }
-              await putStream(tel, {
-                agentId: String(packet.agentId || "ws-bridge"),
-                status: "STREAMING",
-                version: "ws-1",
-                devices: [String(data.hostIp || data.ip || "")].filter(Boolean),
-                ts: Date.now(),
-                lastError: null,
-              });
+              await putStream(
+                tel,
+                {
+                  agentId: String(packet.agentId || "ws-bridge"),
+                  status: "STREAMING",
+                  version: "ws-1",
+                  devices: [String(data.hostIp || data.ip || "")].filter(Boolean),
+                  ts: Date.now(),
+                  lastError: null,
+                },
+                cid
+              );
             } catch (e) {
               console.error("store err", e.message || e);
             }

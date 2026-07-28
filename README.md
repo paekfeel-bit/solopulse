@@ -2,54 +2,52 @@
 
 Universal small solo mining intelligence platform.
 
-**Production (Railway):** https://solopulse-production.up.railway.app
+**Production:** https://solopulse-production.up.railway.app  
+**Device Link guide:** https://solopulse-production.up.railway.app/bridge
+
+## Product model (important)
+
+| Who | What they do |
+|-----|----------------|
+| **Anyone with the link** | Open site → enter BTC address → **full pool dashboard** (no install) |
+| **Anyone who wants live board** (temp, ASIC hashrate) | Same site → download **Device Link** (`.bat`) configured with *their* address → run on *their* home PC |
+
+The website **cannot** reach home miners by itself (private LAN + browser security).  
+Device Link is optional; **pool mode is the complete web product.**
+
+Multi-user isolation: `CLIENT_ID` = payout address. User A and User B never share device streams.
 
 ## Architecture
 
 ```
-Phone (HTTPS UI + WebSocket)
-        │
-        ▼
-Railway (Next.js + /ws)
-        ▲
-        │ wss bridge  OR  HTTPS agent POST
-        │
-Home PC: start-bridge.bat  /  start-local-agent.bat
-        │
-        ▼
-NerdQAxe / AxeOS (LAN only — cloud never opens 172.x)
+Phone / PC browser  ──HTTPS──▶  Railway (Next.js + /ws)
+        │                              ▲
+        │ pool APIs                    │ optional push
+        ▼                              │
+   CKPool / public stats     Home PC: Device Link (.bat from /bridge)
+                                       │
+                                       ▼
+                                  NerdQAxe (LAN only)
 ```
-
-### Why not “enter IP in the website”?
-
-1. Cloud cannot reach private LAN IPs  
-2. HTTPS pages block HTTP miner (Mixed Content)  
-3. AxeOS usually has no CORS  
 
 ## Quick start
 
-### Web (already on Railway)
+### Web only (third parties)
 
-Open: https://solopulse-production.up.railway.app
+Open https://solopulse-production.up.railway.app — enter address.
 
-### Local bridge (Method 1 — recommended)
+### Optional Device Link
+
+1. Open https://solopulse-production.up.railway.app/bridge  
+2. Paste your mining address  
+3. Download Windows `.bat`  
+4. Run on the PC that shares Wi‑Fi with the miner (keep window open)
+
+Or if you already cloned this repo:
 
 ```bat
+set CLIENT_ID=bc1qYOUR_ADDRESS
 start-bridge.bat
-```
-
-### Local agent (HTTP push fallback)
-
-```bat
-start-local-agent.bat
-```
-
-### Capacitor Android (Method 2)
-
-See [CAPACITOR.md](./CAPACITOR.md)
-
-```bash
-npx cap open android
 ```
 
 ### Dev
@@ -64,12 +62,12 @@ npm start   # node server.mjs (Next + WebSocket)
 
 | Tab | Content |
 |-----|---------|
-| ◎ Gauges | Analog cluster |
-| ⚡ Engine | Source engine live |
-| 🎲 Odds | Poisson odds / cases |
-| 📈 Chart | Hashrate history |
-| 🌐 Net | Network / mempool |
-| 📡 Agent | Bridge / agent setup |
+| Gauges | Analog cluster |
+| Engine | Source engine live |
+| Odds | Poisson odds / cases |
+| Chart | Hashrate history |
+| Net | Network / mempool |
+| Agent | Pool vs Device Link |
 
 ## Docs
 

@@ -1,11 +1,9 @@
 /**
- * Shared agent snapshot for custom server (WebSocket path).
- * Atomic telemetry+heartbeat writes to avoid JSONBlob races.
+ * Multi-tenant agent snapshot for custom server (WebSocket path).
+ * Keyed by clientId (= payout address). Mirrors src/lib/agentStore.ts
  */
 const DEFAULT_SNAPSHOT =
   "https://jsonblob.com/api/jsonBlob/019fa850-df81-7bea-af1b-2c18bc6361a8";
-
-/** Device considered live this long after last sample (sticky) */
 const FRESH_MS = 120_000;
 
 function snapshotUrl() {
@@ -16,8 +14,34 @@ function snapshotUrl() {
   ).trim();
 }
 
-let mem = { telemetry: null, heartbeat: null, updatedAt: 0 };
+function toClientId(id) {
+  return String(id || "default").trim().replace(/\s+/g, "") || "default";
+}
+
+let mem = { version: 2, clients: {} };
 let writeChain = Promise.resolve();
+
+function enqueueWrite(fn) {
+  writeChain = writeChain.then(fn, fn);
+  return writeChain;
+}
+
+function emptySlot() {
+  return { telemetry: null, heartbeat: null, updatedAt: 0 };
+}
+
+function ensureClients(data) {
+  if (data?.clients && typeof data.clients === "object") return data.clients;
+  const clients = {};
+  if (data?.telemetry || data?.heartbeat) {
+    clients.default = {
+      telemetry: data.telemetry || null,
+      heartbeat: data.heartbeat || null,
+      updatedAt: Number(data.updatedAt) || 0,
+    };
+  }
+  return clients;
+}
 
 async function remoteGet() {
   try {
@@ -29,11 +53,7 @@ async function remoteGet() {
     if (!res.ok) return null;
     const j = await res.json();
     if (!j || typeof j !== "object") return null;
-    return {
-      telemetry: j.telemetry || null,
-      heartbeat: j.heartbeat || null,
-      updatedAt: Number(j.updatedAt) || 0,
-    };
+    return { version: 2, clients: ensureClients(j) };
   } catch {
     return null;
   }
@@ -56,80 +76,44 @@ async function remotePut(data) {
   }
 }
 
-/** Serialize all writes so concurrent bridge ticks cannot clobber each other */
-function enqueueWrite(fn) {
-  writeChain = writeChain.then(fn, fn);
-  return writeChain;
+function slotOf(cid) {
+  if (!mem.clients[cid]) mem.clients[cid] = emptySlot();
+  return mem.clients[cid];
 }
 
-export async function putTelemetry(t) {
+export async function putStream(t, h, clientId = "default") {
+  const cid = toClientId(clientId);
   return enqueueWrite(async () => {
     const now = Date.now();
-    const remote = await remoteGet();
-    if (remote && (remote.updatedAt || 0) > (mem.updatedAt || 0)) {
-      mem = {
-        telemetry: remote.telemetry || mem.telemetry,
-        heartbeat: remote.heartbeat || mem.heartbeat,
-        updatedAt: remote.updatedAt,
-      };
-    }
-    mem.telemetry = t;
-    mem.heartbeat = {
-      agentId: String(t.agentId || mem.heartbeat?.agentId || "ws-bridge"),
-      status: t.agentStatus || "STREAMING",
-      version: mem.heartbeat?.version || "ws-1",
-      devices: [String(t.hostIp || "")].filter(Boolean),
-      ts: now,
-      lastError: null,
-    };
-    mem.updatedAt = now;
-    await remotePut(mem);
-  });
-}
-
-export async function putHeartbeat(h) {
-  return enqueueWrite(async () => {
     const remote = await remoteGet();
     if (remote) {
       mem = {
-        telemetry: remote.telemetry || mem.telemetry,
-        heartbeat: h,
-        updatedAt: Date.now(),
+        version: 2,
+        clients: { ...ensureClients(remote), ...mem.clients },
       };
-    } else {
-      mem.heartbeat = h;
-      mem.updatedAt = Date.now();
     }
+    const slot = slotOf(cid);
+    if (t) slot.telemetry = t;
+    if (h) slot.heartbeat = h;
+    slot.updatedAt = now;
     await remotePut(mem);
   });
 }
 
-/** One-shot write used by WebSocket path — no second race with putHeartbeat */
-export async function putStream(t, h) {
-  return enqueueWrite(async () => {
-    const now = Date.now();
-    const remote = await remoteGet();
-    if (remote && (remote.updatedAt || 0) > (mem.updatedAt || 0)) {
-      mem = {
-        telemetry: remote.telemetry || mem.telemetry,
-        heartbeat: remote.heartbeat || mem.heartbeat,
-        updatedAt: remote.updatedAt,
-      };
-    }
-    mem.telemetry = t || mem.telemetry;
-    mem.heartbeat = h || mem.heartbeat;
-    mem.updatedAt = now;
-    await remotePut(mem);
-  });
-}
-
-export async function getSnapshot() {
+export async function getSnapshot(clientId = "default") {
+  const cid = toClientId(clientId);
   const remote = await remoteGet();
-  if (remote && (remote.updatedAt || 0) >= (mem.updatedAt || 0)) mem = remote;
+  if (remote) {
+    mem = {
+      version: 2,
+      clients: { ...mem.clients, ...ensureClients(remote) },
+    };
+  }
+  const slot = mem.clients[cid] || emptySlot();
   const now = Date.now();
-  const t = mem.telemetry;
-  const hb = mem.heartbeat;
-  const last = Math.max(t?.collectedAt || 0, hb?.ts || 0, mem.updatedAt || 0);
+  const t = slot.telemetry;
+  const hb = slot.heartbeat;
+  const last = Math.max(t?.collectedAt || 0, hb?.ts || 0, slot.updatedAt || 0);
   const deviceFresh = Boolean(t && now - t.collectedAt < FRESH_MS);
   const agentOnline = Boolean(hb && now - hb.ts < FRESH_MS) || deviceFresh;
   const ghs = Number(t?.hashRateGhs) || 0;
