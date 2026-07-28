@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useMinerDashboard } from "@/hooks/useMinerDashboard";
@@ -201,9 +201,17 @@ export function Dashboard({ address, onLogout }: Props) {
     setDeviceBusy(true);
     try {
       const raw = deviceIpDraft.trim() || "auto";
-      const info = await deviceHr.connect(raw);
-      if (info?.ip) setDeviceIpDraft(String(info.ip));
-      else setDeviceIpDraft(raw);
+      // Parallel: bridge agent + device path — first good result wins for UI
+      const [info, snap] = await Promise.all([
+        deviceHr.connect(raw),
+        agent.refresh(),
+      ]);
+      const host =
+        info?.ip ||
+        snap?.telemetry?.hostIp ||
+        (agent.hasLiveHashrate ? agent.hostIp : "") ||
+        raw;
+      setDeviceIpDraft(String(host));
     } finally {
       setDeviceBusy(false);
     }
@@ -213,9 +221,15 @@ export function Dashboard({ address, onLogout }: Props) {
     setDeviceBusy(true);
     try {
       setDeviceIpDraft("auto");
-      const found = await deviceHr.scanLan();
-      if (found?.[0]?.ip) setDeviceIpDraft(found[0].ip);
-      else setDeviceIpDraft("auto");
+      const [found, snap] = await Promise.all([
+        deviceHr.scanLan(),
+        agent.refresh(),
+      ]);
+      const host =
+        found?.[0]?.ip ||
+        snap?.telemetry?.hostIp ||
+        "auto";
+      setDeviceIpDraft(String(host));
     } finally {
       setDeviceBusy(false);
     }
@@ -364,7 +378,7 @@ export function Dashboard({ address, onLogout }: Props) {
 
   return (
     <div className="min-h-dvh pb-[calc(4.5rem+env(safe-area-inset-bottom))] bg-[var(--bg)] text-[var(--fg)] overflow-x-clip">
-      <header className="sticky top-0 z-40 border-b border-stone-800 bg-stone-950/95 backdrop-blur-md pt-[env(safe-area-inset-top)]">
+      <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--header)] backdrop-blur-md pt-[env(safe-area-inset-top)]">
         <div className="max-w-3xl mx-auto px-3 py-2 space-y-2">
           {/* Row 1: brand + status */}
           <div className="flex items-center gap-2 min-w-0">
@@ -375,7 +389,7 @@ export function Dashboard({ address, onLogout }: Props) {
               <div className="flex items-center gap-1.5 min-w-0">
                 <div className="text-sm font-bold leading-tight shrink-0 tracking-tight">
                   Solo<span className="text-amber-500">Pulse</span>{" "}
-                  <span className="text-[9px] font-normal text-stone-500 tracking-[0.2em] uppercase">
+                  <span className="text-[9px] font-normal text-[var(--fg)]0 tracking-[0.2em] uppercase">
                     Intelligence
                   </span>
                 </div>
@@ -473,7 +487,7 @@ export function Dashboard({ address, onLogout }: Props) {
         </div>
 
         {/* Analog instrument cluster */}
-        <section className="rounded-2xl border border-stone-700/90 bg-gradient-to-b from-stone-900/95 to-stone-950 p-3 sm:p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
+        <section className="rounded-2xl border border-[var(--border)] bg-gradient-to-b from-[var(--card)] to-[var(--bg)] p-3 sm:p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
           <div className="flex items-center justify-between gap-2 mb-2">
             <div className="text-[10px] uppercase tracking-[0.28em] text-amber-600 font-semibold">
               SoloPulse · HOME · GAUGES + NET
@@ -484,7 +498,7 @@ export function Dashboard({ address, onLogout }: Props) {
                   ? "border-emerald-600/50 text-emerald-400"
                   : dash.loading
                     ? "border-amber-600/50 text-amber-400"
-                    : "border-stone-600 text-stone-400"
+                    : "border-[var(--border)] text-[var(--muted)]"
               }`}
             >
               {agent.hasLiveHashrate || deviceHr.hasLiveHashrate
@@ -540,7 +554,7 @@ export function Dashboard({ address, onLogout }: Props) {
               sensitiveScale
             />
           </div>
-          <div className="mt-2 text-center font-mono text-2xl sm:text-3xl text-stone-50 tabular-nums tracking-tight">
+          <div className="mt-2 text-center font-mono text-2xl sm:text-3xl text-[var(--fg)] tabular-nums tracking-tight">
             {shownHs > 0 ? formatHashrateGhs(shownHs, 2) : "—"}
             <span className="text-sm text-amber-500 ml-2">
               {hrSource === "device"
@@ -550,7 +564,7 @@ export function Dashboard({ address, onLogout }: Props) {
                 : "POOL"}
             </span>
           </div>
-          <div className="text-center text-[10px] font-mono text-stone-500 mt-1 break-all">
+          <div className="text-center text-[10px] font-mono text-[var(--fg)]0 mt-1 break-all">
             {agent.hasLiveHashrate
               ? `${agent.deviceModel || "miner"} · ${agent.hostIp || "—"} · age ${
                   deviceAgeMs != null ? `${(deviceAgeMs / 1000).toFixed(0)}s` : "—"
@@ -562,10 +576,10 @@ export function Dashboard({ address, onLogout }: Props) {
         </section>
 
         {/* ① Hashrate detail + legacy controls */}
-        <section className="rounded-2xl border border-stone-700/80 bg-stone-950/80 p-3 sm:p-4 min-w-0 overflow-hidden">
+        <section className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-3 sm:p-4 min-w-0 overflow-hidden">
           <div className="flex flex-col sm:flex-row sm:items-start gap-3">
             <div className="min-w-0 flex-1 space-y-1.5">
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] uppercase tracking-wider text-stone-500">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] uppercase tracking-wider text-[var(--fg)]0">
                 <span className="inline-flex items-center gap-1.5 shrink-0">
                   {hrSource === "device"
                     ? locale === "ko"
@@ -593,7 +607,7 @@ export function Dashboard({ address, onLogout }: Props) {
                 </span>
               </div>
 
-              <div className="text-[10px] font-mono text-stone-400 leading-relaxed break-all">
+              <div className="text-[10px] font-mono text-[var(--muted)] leading-relaxed break-all">
                 {hrSource === "device" && (agent.hasLiveHashrate || deviceHr.device) ? (
                   <>
                     <span className="text-emerald-500">
@@ -695,8 +709,8 @@ export function Dashboard({ address, onLogout }: Props) {
               </div>
 
               {/* Device connect panel — IP + auto search restored */}
-              <div className="rounded-xl border border-stone-700 bg-stone-900/60 p-2.5 space-y-2">
-                <div className="text-[10px] uppercase tracking-wider text-stone-500 font-semibold">
+              <div className="rounded-xl border border-[var(--border)] bg-[var(--bg)] p-2.5 space-y-2">
+                <div className="text-[10px] uppercase tracking-wider text-[var(--fg)]0 font-semibold">
                   {locale === "ko" ? "기기 연결 (보드)" : "Device link (board)"}
                 </div>
                 <div className="flex flex-col sm:flex-row gap-1.5">
@@ -706,7 +720,7 @@ export function Dashboard({ address, onLogout }: Props) {
                     onChange={(e) => setDeviceIpDraft(e.target.value)}
                     placeholder="auto / 172.30.1.33"
                     spellCheck={false}
-                    className="flex-1 min-w-0 rounded-lg border border-stone-600 bg-stone-950 px-2.5 py-2 text-xs font-mono text-stone-100"
+                    className="flex-1 min-w-0 rounded-lg border border-[var(--border)] bg-[var(--card)] px-2.5 py-2 text-xs font-mono text-[var(--fg)]"
                   />
                   <div className="flex gap-1.5 shrink-0">
                     <button
@@ -737,7 +751,7 @@ export function Dashboard({ address, onLogout }: Props) {
                       key={ip}
                       type="button"
                       onClick={() => setDeviceIpDraft(ip)}
-                      className="text-[9px] font-mono px-2 py-0.5 rounded border border-stone-700 text-stone-400 hover:text-stone-200"
+                      className="text-[9px] font-mono px-2 py-0.5 rounded border border-[var(--border)] text-[var(--muted)] hover:text-[var(--fg)]"
                     >
                       {ip}
                     </button>
@@ -749,7 +763,7 @@ export function Dashboard({ address, onLogout }: Props) {
                       ? "text-emerald-400"
                       : deviceHr.status === "connecting" || deviceBusy
                         ? "text-amber-400"
-                        : "text-stone-400"
+                        : "text-[var(--muted)]"
                   }`}
                 >
                   {agent.hasLiveHashrate
@@ -760,23 +774,23 @@ export function Dashboard({ address, onLogout }: Props) {
                         ? `OFFLINE · ${deviceHr.error}`
                         : deviceHr.status === "connecting" || deviceBusy
                           ? locale === "ko"
-                            ? "연결/검색 중…"
-                            : "Connecting…"
+                            ? "확인 중… 브리지·보드 응답 대기 (보통 1~3초)"
+                            : "Checking… bridge/board (usually 1–3s)"
                           : locale === "ko"
-                            ? "미연결 · IP 입력 후 연결 또는 자동 검색 · 집 PC에 start-bridge.bat 권장"
-                            : "Not linked · enter IP or Auto scan · run start-bridge.bat on home PC"}
+                            ? "미연결 · 연결/자동검색 · 또는 브리지 탭 .bat"
+                            : "Offline · Connect / Auto scan · or Bridge tab .bat"}
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   <button
                     type="button"
-                    className="text-[11px] px-3 py-1.5 rounded-lg border border-stone-700 text-stone-300"
+                    className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border)] text-[var(--muted)]"
                     onClick={() => void handleRefresh()}
                   >
                     {locale === "ko" ? "전체 새로고침" : "Refresh all"}
                   </button>
                   <button
                     type="button"
-                    className="text-[11px] px-3 py-1.5 rounded-lg border border-stone-700 text-stone-300"
+                    className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border)] text-[var(--muted)]"
                     onClick={() => void agent.refresh()}
                   >
                     {locale === "ko" ? "Agent 갱신" : "Refresh agent"}
@@ -942,13 +956,13 @@ export function Dashboard({ address, onLogout }: Props) {
           />
         )}
         {u.worker && u.worker.length > 0 && (
-          <section className="rounded-2xl border border-stone-700 bg-stone-950 p-4">
+          <section className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4">
             <h2 className="text-sm font-semibold mb-2">{t("workers")}</h2>
             <div className="space-y-2">
               {u.worker.map((w, idx) => (
                 <div
                   key={`${w.workername}-${idx}`}
-                  className="rounded-xl bg-stone-900 border border-stone-800 px-3 py-2.5 flex flex-wrap items-center justify-between gap-2 min-w-0"
+                  className="rounded-xl bg-[var(--bg)] border border-[var(--border)] px-3 py-2.5 flex flex-wrap items-center justify-between gap-2 min-w-0"
                 >
                   <div className="min-w-0">
                     <div className="text-xs font-mono truncate max-w-[200px] sm:max-w-md">
@@ -957,7 +971,7 @@ export function Dashboard({ address, onLogout }: Props) {
                           w.workername
                         : w.workername || "default"}
                     </div>
-                    <div className="text-[10px] text-stone-500 mt-0.5">
+                    <div className="text-[10px] text-[var(--fg)]0 mt-0.5">
                       last {w.lastshare ? formatTimeAgo(w.lastshare) : "—"}
                     </div>
                   </div>
@@ -965,7 +979,7 @@ export function Dashboard({ address, onLogout }: Props) {
                     <div className="text-sm font-mono font-semibold text-amber-500 break-all">
                       {w.hashrate5m || w.hashrate1m || "—"}
                     </div>
-                    <div className="text-[10px] text-stone-500 font-mono">
+                    <div className="text-[10px] text-[var(--fg)]0 font-mono">
                       best {formatDifficulty(Number(w.bestshare || 0))}
                     </div>
                   </div>
@@ -1065,8 +1079,8 @@ export function Dashboard({ address, onLogout }: Props) {
               staleMs={deviceAgeMs ?? agent.staleMs}
               agentStatus={agent.agentStatus}
             />
-            <section className="rounded-2xl border border-stone-700 bg-stone-950 p-4 space-y-2 text-[11px] text-stone-400 leading-relaxed">
-              <h3 className="text-sm font-semibold text-stone-200">
+            <section className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4 space-y-2 text-[11px] text-[var(--muted)] leading-relaxed">
+              <h3 className="text-sm font-semibold text-[var(--fg)]">
                 {locale === "ko"
                   ? "왜 사이트에 브리지가 필요한가"
                   : "Why the bridge belongs in the product"}
@@ -1076,7 +1090,7 @@ export function Dashboard({ address, onLogout }: Props) {
                   ? "웹(Railway)은 집 사설 IP(172/192.168)에 직접 들어갈 수 없습니다. 브리지가 마이너를 읽고 사이트로 밀어 줍니다. 풀 통계만 볼 때는 브리지 없이도 되지만, 보드 실측·소스엔진 컨택에는 브리지가 필수입니다."
                   : "The cloud site cannot open private LAN IPs. The bridge reads the miner and pushes into the site. Pool-only viewing works without it; live board + source engine require the bridge."}
               </p>
-              <p className="font-mono text-[10px] text-stone-500 bg-black/40 rounded-lg p-2">
+              <p className="font-mono text-[10px] text-[var(--fg)]0 bg-[var(--bg)] rounded-lg p-2">
                 [NerdQAxe] ←LAN→ [start-bridge.bat] ←WSS→ [solopulse.railway] ←HTTPS→ [폰/PC]
               </p>
               <button
@@ -1091,13 +1105,13 @@ export function Dashboard({ address, onLogout }: Props) {
                   href="https://x.com/medbedeee"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 rounded-full border border-stone-700 px-4 py-2 text-xs text-stone-400"
+                  className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-4 py-2 text-xs text-[var(--muted)]"
                 >
                   𝕏 {t("feedback")}
                 </a>
                 <LightningTip variant="pill" />
               </div>
-              <p className="text-center text-[10px] text-stone-600">
+              <p className="text-center text-[10px] text-[var(--muted)]">
                 <BtcDisclaimer className="align-middle" />
               </p>
             </section>

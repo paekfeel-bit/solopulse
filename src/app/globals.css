@@ -60,22 +60,26 @@ body {
 
 body {
   color: var(--fg);
-  background: var(--bg);
-  /* Analog dash / warm tube radio base */
+  background-color: var(--bg);
+  min-height: 100dvh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  padding-left: env(safe-area-inset-left);
+  padding-right: env(safe-area-inset-right);
+  padding-bottom: env(safe-area-inset-bottom);
+  word-break: keep-all;
+  overflow-wrap: anywhere;
+}
+
+/* Dark ambient (default) */
+html.dark body,
+html[data-theme="dark"] body,
+html:not(.light):not([data-theme="light"]) body {
   background-image:
     radial-gradient(ellipse 90% 55% at 50% -15%, rgba(180, 83, 9, 0.18), transparent),
     radial-gradient(ellipse 50% 40% at 0% 100%, rgba(68, 64, 60, 0.35), transparent),
     radial-gradient(ellipse 40% 30% at 100% 80%, rgba(120, 53, 15, 0.12), transparent),
     linear-gradient(180deg, #0c0a09 0%, #09090b 40%, #0a0a0a 100%);
-  min-height: 100dvh;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-  /* Only horizontal safe areas on body — sticky header handles top */
-  padding-left: env(safe-area-inset-left);
-  padding-right: env(safe-area-inset-right);
-  padding-bottom: env(safe-area-inset-bottom);
-  word-break: keep-all; /* Korean: avoid mid-word breaks when possible */
-  overflow-wrap: anywhere;
 }
 
 /* Mono numbers still break long strings cleanly */
@@ -96,9 +100,31 @@ body {
 
 html.light body,
 html[data-theme="light"] body {
+  background-color: var(--bg);
   background-image:
-    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(245, 158, 11, 0.08), transparent),
-    radial-gradient(ellipse 60% 40% at 100% 100%, rgba(251, 191, 36, 0.06), transparent);
+    radial-gradient(ellipse 80% 50% at 50% -20%, rgba(245, 158, 11, 0.1), transparent),
+    radial-gradient(ellipse 60% 40% at 100% 100%, rgba(251, 191, 36, 0.08), transparent),
+    linear-gradient(180deg, #fafafa 0%, #f4f4f5 50%, #f0f0f1 100%);
+}
+
+/* Theme-aware surface helpers (prefer these over hard-coded stone-950) */
+.sp-surface {
+  background: var(--card);
+  border-color: var(--border);
+  color: var(--fg);
+}
+.sp-panel {
+  background: var(--card);
+  border: 1px solid var(--border);
+  color: var(--fg);
+}
+.sp-muted {
+  color: var(--muted);
+}
+.sp-header {
+  background: var(--header);
+  border-color: var(--border);
+  color: var(--fg);
 }
 
 button,

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useEffect, useMemo, useState } from "react";
 import { useI18n } from "@/lib/i18n";
@@ -58,7 +58,7 @@ export function SourceEngineLive({
       : 0;
 
   return (
-    <section className="rounded-2xl border border-stone-700/80 bg-gradient-to-b from-stone-900 via-stone-950 to-black p-4 sm:p-5 shadow-inner shadow-amber-900/10 overflow-hidden relative">
+    <section className="rounded-2xl border border-[var(--border)] bg-gradient-to-b from-[var(--card)] via-[var(--bg)] to-[var(--bg)] p-4 sm:p-5 shadow-inner shadow-amber-900/10 overflow-hidden relative">
       {/* retro speaker grille */}
       <div
         className="absolute inset-0 opacity-[0.07] pointer-events-none"
@@ -73,7 +73,7 @@ export function SourceEngineLive({
           <div className="text-[10px] uppercase tracking-[0.25em] text-amber-500/90 font-semibold">
             Source Engine · LIVE
           </div>
-          <h2 className="text-base sm:text-lg font-bold text-stone-100 tracking-tight">
+          <h2 className="text-base sm:text-lg font-bold text-[var(--fg)] tracking-tight">
             {locale === "ko" ? "코어 마이닝 인텔리전스" : "Core Mining Intelligence"}
           </h2>
         </div>
@@ -81,7 +81,7 @@ export function SourceEngineLive({
           className={`text-[10px] font-mono px-2 py-1 rounded border ${
             live
               ? "border-emerald-500/50 text-emerald-400 bg-emerald-500/10"
-              : "border-stone-600 text-stone-400 bg-stone-800/50"
+              : "border-[var(--border)] text-[var(--muted)] bg-[var(--border)]/50"
           }`}
         >
           {live ? "● STREAMING" : `○ ${agentStatus}`}
@@ -99,7 +99,7 @@ export function SourceEngineLive({
               }}
             />
             <div
-              className="absolute inset-3 rounded-full border border-stone-600"
+              className="absolute inset-3 rounded-full border border-[var(--border)]"
               style={{
                 animation: `sp-spin ${spinSec}s linear infinite`,
                 background:
@@ -107,13 +107,13 @@ export function SourceEngineLive({
                 opacity: 0.85,
               }}
             />
-            <div className="absolute inset-8 rounded-full bg-stone-950 border border-stone-700 flex flex-col items-center justify-center">
-              <div className="text-[9px] text-stone-500 uppercase tracking-widest">λ·day</div>
+            <div className="absolute inset-8 rounded-full bg-[var(--card)] border border-[var(--border)] flex flex-col items-center justify-center">
+              <div className="text-[9px] text-[var(--muted)] uppercase tracking-widest">λ·day</div>
               <div className="text-sm font-mono text-amber-400 tabular-nums">
                 {lambdaDay > 0 ? lambdaDay.toExponential(2) : "—"}
               </div>
-              <div className="text-[9px] text-stone-500 mt-1">P(24h)</div>
-              <div className="text-xs font-mono text-stone-200">
+              <div className="text-[9px] text-[var(--muted)] mt-1">P(24h)</div>
+              <div className="text-xs font-mono text-[var(--fg)]">
                 {pDay > 0
                   ? pDay >= 1e-6
                     ? `${(pDay * 100).toFixed(6)}%`
@@ -147,18 +147,18 @@ export function SourceEngineLive({
             v={`${Math.round(confidence * 100)}%`}
           />
           <div>
-            <div className="flex justify-between text-stone-500 mb-1">
+            <div className="flex justify-between text-[var(--muted)] mb-1">
               <span>{locale === "ko" ? "베스트셰어 사다리" : "Best-share ladder"}</span>
               <span className="text-amber-500/90">{(ladder * 100).toFixed(1)}%</span>
             </div>
-            <div className="h-2 rounded-full bg-stone-800 overflow-hidden border border-stone-700">
+            <div className="h-2 rounded-full bg-[var(--border)] overflow-hidden border border-[var(--border)]">
               <div
                 className="h-full bg-gradient-to-r from-amber-700 via-amber-400 to-yellow-200 transition-all duration-500"
                 style={{ width: `${ladder * 100}%` }}
               />
             </div>
           </div>
-          <div className="text-[10px] text-stone-500 leading-relaxed border-t border-stone-800 pt-2">
+          <div className="text-[10px] text-[var(--muted)] leading-relaxed border-t border-[var(--border)] pt-2">
             {locale === "ko"
               ? "회전 속도 ∝ 실시간 해시 / 네트워크. 코어 수치는 Poisson λ·P(day) 실계산. 예측·당첨 보장이 아닙니다."
               : "Spin ∝ live hashrate share. Core numbers are real Poisson λ / P(day). Not a prediction of winning."}
@@ -172,9 +172,9 @@ export function SourceEngineLive({
 
 function Row({ k, v }: { k: string; v: string }) {
   return (
-    <div className="flex justify-between gap-3 border-b border-stone-800/80 pb-1">
-      <span className="text-stone-500">{k}</span>
-      <span className="text-stone-100 tabular-nums">{v}</span>
+    <div className="flex justify-between gap-3 border-b border-[var(--border)]/80 pb-1">
+      <span className="text-[var(--muted)]">{k}</span>
+      <span className="text-[var(--fg)] tabular-nums">{v}</span>
     </div>
   );
 }

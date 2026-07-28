@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 export type DashTab = "home" | "engine" | "odds" | "chart" | "bridge";
 
@@ -30,7 +30,7 @@ export function BottomNav({
 }) {
   return (
     <nav
-      className="fixed bottom-0 inset-x-0 z-50 border-t border-stone-700/90 bg-stone-950/95 backdrop-blur-md pb-[env(safe-area-inset-bottom)]"
+      className="fixed bottom-0 inset-x-0 z-50 border-t border-[var(--border)] bg-[var(--header)] backdrop-blur-md pb-[env(safe-area-inset-bottom)]"
       aria-label="Main menu"
     >
       <div className="max-w-3xl mx-auto grid grid-cols-5 gap-0.5 px-1 pt-1.5 pb-1">
@@ -45,7 +45,7 @@ export function BottomNav({
               className={`relative flex flex-col items-center justify-center gap-0.5 min-h-[3.25rem] rounded-xl transition-colors ${
                 active
                   ? "bg-amber-500/15 text-amber-400"
-                  : "text-stone-500 hover:text-stone-300"
+                  : "text-[var(--muted)] hover:text-[var(--muted)]"
               }`}
             >
               <span className="text-lg leading-none" aria-hidden>
