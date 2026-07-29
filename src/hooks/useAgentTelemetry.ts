@@ -114,12 +114,19 @@ export function useAgentTelemetry(enabled = true, clientId = "default") {
     try {
       const ids = cid === "default" ? ["default"] : [cid, "default"];
       let best: AgentSnapshot | null = null;
+      // Cloudflare API worker holds SoloRoom snapshots (not Railway)
+      const host =
+        typeof window !== "undefined" ? window.location.hostname : "";
+      const apiOrigin =
+        host.endsWith("workers.dev") || host.includes("cloudflare")
+          ? "https://solopulse-api.paekfeel.workers.dev"
+          : "";
       for (const id of ids) {
         const q = new URLSearchParams({
           clientId: id,
           _: String(Date.now()),
         });
-        const res = await fetch(`/api/agent/telemetry?${q}`, {
+        const res = await fetch(`${apiOrigin}/api/agent/telemetry?${q}`, {
           cache: "no-store",
         });
         if (!res.ok) continue;
