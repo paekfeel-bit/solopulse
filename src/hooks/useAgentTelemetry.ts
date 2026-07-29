@@ -7,10 +7,27 @@ import type { AgentSnapshot, MinerTelemetry } from "@/lib/telemetry";
 const POLL_MS = 1_500;
 const FRESH_MS = 90_000;
 
+/** Live board stream WebSocket.
+ * Cloudflare workers.dev cannot reliably proxy Upgrade→Railway (error 1042),
+ * so when the UI is served from *.workers.dev we connect straight to Railway.
+ */
 function wsUrl(clientId: string): string {
   if (typeof window === "undefined") return "";
-  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
   const id = encodeURIComponent(clientId || "default");
+  const host = window.location.hostname || "";
+  const direct =
+    (typeof process !== "undefined" &&
+      process.env.NEXT_PUBLIC_WS_URL?.replace(/\/$/, "")) ||
+    "wss://solopulse-production.up.railway.app/ws";
+  if (
+    host.endsWith("workers.dev") ||
+    host.includes("cloudflare") ||
+    // env override always wins for cloud edge shells
+    process.env.NEXT_PUBLIC_FORCE_RAILWAY_WS === "1"
+  ) {
+    return `${direct}?role=browser&clientId=${id}`;
+  }
+  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${proto}//${window.location.host}/ws?role=browser&clientId=${id}`;
 }
 
