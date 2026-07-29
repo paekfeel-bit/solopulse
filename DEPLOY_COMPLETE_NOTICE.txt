@@ -1,0 +1,15 @@
+# SoloPulse Cloudflare — 올바른 사이트 주소
+
+Account workers.dev 서브도메인: **paekfeel** (구 paekfeel-solopulse 는 SSL 깨짐)
+
+## 사이트 주소 (이 주소만 사용)
+
+- Edge: https://solopulse.paekfeel.workers.dev
+- Edge health: https://solopulse.paekfeel.workers.dev/health
+- API: https://solopulse-api.paekfeel.workers.dev
+- API health: https://solopulse-api.paekfeel.workers.dev/health
+- Bridge WSS: wss://solopulse-api.paekfeel.workers.dev
+
+## 쓰지 말 것 (SSL 오류)
+
+- https://solopulse.paekfeel-solopulse.workers.dev  ← ERR_SSL_VERSION_OR_CIPHER_MISMATCH

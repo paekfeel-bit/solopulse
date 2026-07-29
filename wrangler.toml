@@ -7,4 +7,4 @@ preview_urls = false
 
 [vars]
 APP_NAME = "SoloPulse"
-API_BASE = "https://solopulse-api.paekfeel-solopulse.workers.dev"
+API_BASE = "https://solopulse-api.paekfeel.workers.dev"

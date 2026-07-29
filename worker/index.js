@@ -2,7 +2,7 @@
  * SoloPulse Cloudflare Worker entry (Git CI / workers.dev)
  * API/realtime lives on solopulse-api; this worker is the public edge shell.
  */
-const API = "https://solopulse-api.paekfeel-solopulse.workers.dev";
+const API = "https://solopulse-api.paekfeel.workers.dev";
 
 export default {
   async fetch(request, env) {
