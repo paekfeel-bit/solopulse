@@ -27,14 +27,33 @@ Home bridge process:
 [NerdQAxe] --LAN--> [this PC bridge] --WSS--> [Railway] --HTTPS--> [phone / other PC]
 ```
 
-Install always-on (once):
+Install always-on (once) — **recommended**:
+
+```text
+더블클릭:  C:\Users\우리집\solopulse\install-always-on.bat
+```
+
+This does:
+
+1. Windows **Startup** shortcut → bridge watchdog on logon  
+2. Starts bridge **now** (minimized)  
+3. **Power plan**: AC sleep/hibernate **OFF** (monitor may still blank)
+
+Power only:
 
 ```powershell
-cd C:\Users\우리집\solopulse
+powershell -ExecutionPolicy Bypass -File scripts\disable-sleep-for-bridge.ps1
+# revert:
+powershell -ExecutionPolicy Bypass -File scripts\disable-sleep-for-bridge.ps1 -Revert
+```
+
+Optional admin scheduled task:
+
+```powershell
 powershell -ExecutionPolicy Bypass -File scripts\install-always-on-bridge.ps1
 ```
 
-Or double-click: `start-bridge-railway.bat` (must stay open unless task installed).
+Or double-click: `start-bridge-railway.bat` (window must stay open unless Startup installed).
 
 ## Physics limit
 
