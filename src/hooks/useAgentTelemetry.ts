@@ -15,15 +15,19 @@ function wsUrl(clientId: string): string {
   if (typeof window === "undefined") return "";
   const id = encodeURIComponent(clientId || "default");
   const host = window.location.hostname || "";
-  const direct =
-    (typeof process !== "undefined" &&
-      process.env.NEXT_PUBLIC_WS_URL?.replace(/\/$/, "")) ||
-    "wss://solopulse-production.up.railway.app/ws";
+  // Next inlines NEXT_PUBLIC_* at build time
+  const envWs =
+    typeof process !== "undefined"
+      ? process.env.NEXT_PUBLIC_WS_URL?.replace(/\/$/, "")
+      : undefined;
+  const forceRailway =
+    typeof process !== "undefined" &&
+    process.env.NEXT_PUBLIC_FORCE_RAILWAY_WS === "1";
+  const direct = envWs || "wss://solopulse-production.up.railway.app/ws";
   if (
+    forceRailway ||
     host.endsWith("workers.dev") ||
-    host.includes("cloudflare") ||
-    // env override always wins for cloud edge shells
-    process.env.NEXT_PUBLIC_FORCE_RAILWAY_WS === "1"
+    host.includes("cloudflare")
   ) {
     return `${direct}?role=browser&clientId=${id}`;
   }
