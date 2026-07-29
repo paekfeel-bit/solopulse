@@ -1,0 +1,10 @@
+name = "solopulse"
+main = "worker/index.js"
+compatibility_date = "2025-03-01"
+account_id = "60fff325c136cbad7a3b5a8ba3434df6"
+workers_dev = true
+preview_urls = false
+
+[vars]
+APP_NAME = "SoloPulse"
+API_BASE = "https://solopulse-api.paekfeel-solopulse.workers.dev"
