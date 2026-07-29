@@ -1,13 +1,18 @@
+# SoloPulse — Cloudflare-native (OpenNext). No Railway origin.
 name = "solopulse"
-main = "worker/index.js"
-compatibility_date = "2025-03-01"
+main = ".open-next/worker.js"
+compatibility_date = "2024-12-30"
+compatibility_flags = ["nodejs_compat"]
 account_id = "60fff325c136cbad7a3b5a8ba3434df6"
 workers_dev = true
 preview_urls = false
 
+[assets]
+directory = ".open-next/assets"
+binding = "ASSETS"
+
 [vars]
 APP_NAME = "SoloPulse"
-API_BASE = "https://solopulse-api.paekfeel.workers.dev"
-UI_ORIGIN = "https://solopulse-production.up.railway.app"
-# Public mobile web-app entry (this worker)
-PUBLIC_URL = "https://solopulse.paekfeel.workers.dev"
+NEXT_PUBLIC_FORCE_RAILWAY_WS = "0"
+NEXT_PUBLIC_WS_URL = "wss://solopulse.paekfeel.workers.dev/ws"
+NEXT_PUBLIC_SITE_URL = "https://solopulse.paekfeel.workers.dev"

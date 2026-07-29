@@ -2,7 +2,7 @@ import type { NextConfig } from "next";
 import path from "path";
 
 const nextConfig: NextConfig = {
-  // Netlify OpenNext adapter handles output — do not set output: 'export'
+  // Cloudflare OpenNext (@opennextjs/cloudflare) — not static export
   reactStrictMode: true,
   poweredByHeader: false,
   // Avoid picking parent folder lockfile as workspace root
@@ -10,3 +10,14 @@ const nextConfig: NextConfig = {
 };
 
 export default nextConfig;
+
+// Local OpenNext Cloudflare runtime (dev only — ignore if package missing)
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { initOpenNextCloudflareForDev } = require("@opennextjs/cloudflare");
+  if (typeof initOpenNextCloudflareForDev === "function") {
+    initOpenNextCloudflareForDev();
+  }
+} catch {
+  /* not using OpenNext locally */
+}

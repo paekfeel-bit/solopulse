@@ -9,7 +9,9 @@
 | Pool shares / best share (CKPool etc.) for your BTC address | Yes |
 | Last known board snapshot (briefly after bridge dies) | Yes (cloud snapshot) |
 
-**URL:** https://solopulse-production.up.railway.app
+**URL (Cloudflare mobile web app):** https://solopulse.paekfeel.workers.dev  
+
+Live board stream (Durable Object): `wss://solopulse-api.paekfeel.workers.dev/ws`
 
 ## Live ASIC board (LAN miner)
 
@@ -24,7 +26,11 @@ The NerdQAxe is on your **home LAN**. The cloud cannot open `172.30.x.x` by itse
 Home bridge process:
 
 ```text
-[NerdQAxe] --LAN--> [this PC bridge] --WSS--> [Railway] --HTTPS--> [phone / other PC]
+[NerdQAxe] --LAN--> [this PC bridge] --WSS--> [Cloudflare SoloRoom DO]
+                                              |
+                                         HTTPS workers.dev
+                                              |
+                                        [phone / other PC]
 ```
 
 Install always-on (once) — **recommended**:

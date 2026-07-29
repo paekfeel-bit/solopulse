@@ -1,15 +1,15 @@
 {
   "name": "solopulse",
-  "version": "2.0.11",
+  "version": "2.0.12",
   "private": true,
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "opennextjs-cloudflare build",
     "build:next": "next build",
-    "build:cf": "node -e \"console.log('solopulse cf worker build ok')\"",
+    "build:cf": "opennextjs-cloudflare build",
     "start": "node server.mjs",
     "start:next": "next start",
     "lint": "next lint",
@@ -18,8 +18,9 @@
     "cap:sync": "npx cap sync",
     "cap:android": "npx cap open android",
     "version:bump": "node scripts/bump-version.mjs",
-    "deploy": "wrangler deploy",
-    "deploy:cf": "wrangler deploy",
+    "deploy": "npm run deploy:cf",
+    "deploy:cf": "opennextjs-cloudflare build && opennextjs-cloudflare deploy",
+    "preview:cf": "opennextjs-cloudflare build && opennextjs-cloudflare preview",
     "deploy:railway": "node scripts/bump-version.mjs && npx railway up -y",
     "deploy:vercel": "npx --yes vercel@latest --prod --yes",
     "pack:export": "node scripts/pack-export.mjs"
@@ -37,6 +38,7 @@
     "@capacitor/core": "^8.4.2",
     "@emnapi/core": "^1.11.3",
     "@emnapi/runtime": "^1.11.3",
+    "@opennextjs/cloudflare": "^1.20.2",
     "@railway/cli": "^5.30.1",
     "@types/node": "^20",
     "@types/qrcode": "^1.5.6",

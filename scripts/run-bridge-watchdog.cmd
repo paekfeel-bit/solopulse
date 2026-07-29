@@ -4,11 +4,12 @@ cd /d "%~dp0\.."
 title SoloPulse Bridge Watchdog
 
 set MINER_SUBNET=172.30.1
-set RAILWAY_WS=wss://solopulse-production.up.railway.app/ws
+set RAILWAY_WS=wss://solopulse-api.paekfeel.workers.dev/ws
+set SOLOPULSE_WS=wss://solopulse-api.paekfeel.workers.dev/ws
 set SOLOPULSE_AGENT_KEY=solopulse-local-dev-key
 set CLIENT_ID=default
 set POLL_MS=2500
-set SOLOPULSE_CLOUD_URL=https://solopulse-production.up.railway.app
+set SOLOPULSE_CLOUD_URL=https://solopulse.paekfeel.workers.dev
 
 if not exist "node_modules\" call npm install --no-audit --no-fund
 

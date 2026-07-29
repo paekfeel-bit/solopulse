@@ -53,8 +53,9 @@ export const viewport: Viewport = {
   ],
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  // Allow pinch only slightly; keep layout stable across phones/tablets
+  maximumScale: 5,
+  userScalable: true,
   viewportFit: "cover",
 };
 

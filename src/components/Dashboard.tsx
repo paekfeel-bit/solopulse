@@ -461,7 +461,7 @@ export function Dashboard({ address, onLogout }: Props) {
   return (
     <div className="relative min-h-dvh pb-[calc(4.5rem+env(safe-area-inset-bottom))] bg-[var(--bg)] text-[var(--fg)] overflow-x-clip">
       <header className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--header)] backdrop-blur-md pt-[env(safe-area-inset-top)]">
-        <div className="max-w-3xl mx-auto px-3 py-2 space-y-2">
+        <div className="sp-shell py-2 space-y-2">
           {/* Row 1: brand + status */}
           <div className="flex items-center gap-2 min-w-0">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-700 via-amber-500 to-stone-800 flex items-center justify-center text-sm shrink-0 border border-amber-600/40">
@@ -540,7 +540,7 @@ export function Dashboard({ address, onLogout }: Props) {
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-3 pt-3 space-y-3 w-full min-w-0">
+      <main className="sp-shell sp-stack pt-3 w-full min-w-0">
         {dash.error && (
           <div className="text-xs text-amber-500 bg-amber-500/10 border border-amber-500/30 rounded-lg px-3 py-2 break-words">
             {dash.error}

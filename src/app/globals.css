@@ -42,6 +42,69 @@ html,
 body {
   overflow-x: clip;
   max-width: 100vw;
+  /* Mobile web-app: fill dynamic viewport on iOS/Android */
+  min-height: 100%;
+  min-height: 100dvh;
+  min-height: -webkit-fill-available;
+}
+
+/* Fluid type + spacing across phone → phablet → tablet */
+:root {
+  --sp-pad: clamp(0.65rem, 2.8vw, 1rem);
+  --sp-gap: clamp(0.5rem, 2vw, 0.85rem);
+  --sp-radius: clamp(0.75rem, 2.5vw, 1rem);
+  --sp-max: min(100%, 42rem);
+  --sp-text: clamp(0.8125rem, 0.75rem + 0.35vw, 0.9375rem);
+  --sp-title: clamp(0.875rem, 0.8rem + 0.4vw, 1rem);
+}
+
+/* Prevent iOS zoom jump on focused inputs */
+@media (max-width: 480px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+}
+
+/* Ultra-narrow (SE / fold cover) */
+@media (max-width: 360px) {
+  :root {
+    --sp-pad: 0.5rem;
+    --sp-gap: 0.4rem;
+  }
+}
+
+/* Tablet / large phone landscape: slightly wider content */
+@media (min-width: 640px) {
+  :root {
+    --sp-max: min(100%, 48rem);
+  }
+}
+
+@media (min-width: 900px) {
+  :root {
+    --sp-max: min(100%, 52rem);
+  }
+}
+
+/* Utility used by dashboard shell */
+.sp-shell {
+  width: 100%;
+  max-width: var(--sp-max);
+  margin-left: auto;
+  margin-right: auto;
+  padding-left: max(var(--sp-pad), env(safe-area-inset-left));
+  padding-right: max(var(--sp-pad), env(safe-area-inset-right));
+  box-sizing: border-box;
+  min-width: 0;
+}
+
+.sp-stack {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-gap);
+  min-width: 0;
 }
 
 @keyframes sp-spin {

@@ -19,10 +19,12 @@ import WebSocket from "ws";
 
 const MINER_IP = process.env.MINER_IP || "";
 const SUBNET = process.env.MINER_SUBNET || "172.30.1";
+// Cloudflare Durable Object live stream (no Railway)
 const RAILWAY_WS = (
   process.env.RAILWAY_WS ||
   process.env.SOLOPULSE_WS ||
-  "wss://solopulse-production.up.railway.app/ws"
+  process.env.CF_WS ||
+  "wss://solopulse-api.paekfeel.workers.dev/ws"
 ).replace(/\/$/, "");
 const KEY =
   process.env.SOLOPULSE_AGENT_KEY ||
