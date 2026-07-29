@@ -1,6 +1,6 @@
 {
   "name": "solopulse",
-  "version": "0.2.0",
+  "version": "2.0.8",
   "private": true,
   "engines": {
     "node": ">=20"
@@ -15,12 +15,14 @@
     "bridge": "node bridge/bridge.mjs",
     "cap:sync": "npx cap sync",
     "cap:android": "npx cap open android",
-    "deploy:railway": "npx railway up -y",
+    "version:bump": "node scripts/bump-version.mjs",
+    "deploy:railway": "node scripts/bump-version.mjs && npx railway up -y",
     "deploy:vercel": "npx --yes vercel@latest --prod --yes",
     "pack:export": "node scripts/pack-export.mjs"
   },
   "dependencies": {
     "next": "15.5.21",
+    "qrcode": "^1.5.4",
     "react": "19.0.1",
     "react-dom": "19.0.1",
     "ws": "^8.21.1"
@@ -31,6 +33,7 @@
     "@capacitor/core": "^8.4.2",
     "@railway/cli": "^5.30.1",
     "@types/node": "^20",
+    "@types/qrcode": "^1.5.6",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/ws": "^8.18.1",

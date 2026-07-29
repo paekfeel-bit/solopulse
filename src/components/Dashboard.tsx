@@ -43,6 +43,13 @@ import { SoloCasePanel } from "./SoloCasePanel";
 import { SourceEngineHub } from "./SourceEngineHub";
 import { SourceEngineLive } from "./SourceEngineLive";
 import { AnalogGauge } from "./AnalogGauge";
+import { hashrateGaugeScale, powerGaugeScale } from "@/lib/gaugeScale";
+import { VersionBadge } from "./VersionBadge";
+import {
+  buildEnhancedBundle,
+  loadBestShareTrend,
+  pushBestShareSample,
+} from "@/lib/mechanismEnhanced";
 import { BestShareBar } from "./BestShareBar";
 import { HashrateChart } from "./HashrateChart";
 import { BtcHourlyChart } from "./BtcHourlyChart";
@@ -56,7 +63,6 @@ import { BtcDisclaimer } from "./BtcDisclaimer";
 import { LightningTip } from "./LightningTip";
 import { BottomNav, type DashTab } from "./BottomNav";
 import { BridgePanel } from "./BridgePanel";
-import { PulseLaser } from "./PulseLaser";
 
 interface Props {
   address: string;
@@ -79,6 +85,8 @@ export function Dashboard({ address, onLogout }: Props) {
   );
   const [deviceBusy, setDeviceBusy] = useState(false);
   const prevFound = useRef<number | null>(null);
+  /** Per-device peak for adaptive gauge full-scale (resets when board IP changes). */
+  const [gaugePeak, setGaugePeak] = useState({ ghs: 0, powerW: 0, key: "" });
 
   // 1s UI clock — age labels + force re-read of sticky age
   useEffect(() => {
@@ -171,6 +179,35 @@ export function Dashboard({ address, onLogout }: Props) {
     Number(dash.network?.difficulty) ||
     Number(deviceHr.device?.networkDifficulty || 0) ||
     0;
+
+  // v2.5 enhanced bundle for SourceEngineLive viz
+  const engineEnhanced = useMemo(() => {
+    if (!(difficulty > 0)) return null;
+    const hs = engineHs > 0 ? engineHs : shownHs;
+    const best = bestForLadder || bestShare;
+    if (best > 0) pushBestShareSample(best);
+    const trend = loadBestShareTrend();
+    const expYears =
+      hs > 0 && difficulty > 0
+        ? (difficulty * Math.pow(2, 32)) / (hs * 86400 * 365.25)
+        : Infinity;
+    return buildEnhancedBundle({
+      hashrateHs: hs,
+      difficulty,
+      bestShare: best,
+      expectedYears: expYears,
+      bestShareTrend: trend,
+      baseReward: Number(dash.network?.blockReward) || 3.125,
+    });
+  }, [
+    engineHs,
+    shownHs,
+    difficulty,
+    bestForLadder,
+    bestShare,
+    dash.network?.blockReward,
+    nowTick,
+  ]);
 
   const liveTick = useLiveOdds({
     // Prefer board H for odds when live; pool only as soft fallback
@@ -327,6 +364,50 @@ export function Dashboard({ address, onLogout }: Props) {
   const tempWarn =
     deviceTemp != null && deviceTemp >= TEMP_CLEAR_C && deviceTemp < TEMP_HOT_C;
 
+  const livePowerW = (() => {
+    if (agent.powerW != null && Number.isFinite(agent.powerW)) return agent.powerW;
+    if (deviceHr.device?.power != null && Number.isFinite(Number(deviceHr.device.power)))
+      return Number(deviceHr.device.power);
+    return 0;
+  })();
+
+  const boardKey =
+    agent.hostIp ||
+    deviceHr.device?.ip ||
+    agent.deviceModel ||
+    deviceHr.device?.deviceModel ||
+    "default";
+
+  // Track device peaks so gauge max follows 1.2 / 4.8 / 10 TH class boards
+  useEffect(() => {
+    const ghs =
+      deviceHsLive > 0
+        ? deviceHsLive / 1e9
+        : shownHs > 0
+          ? shownHs / 1e9
+          : 0;
+    setGaugePeak((prev) => {
+      if (prev.key !== boardKey) {
+        return {
+          key: boardKey,
+          ghs: ghs > 0 ? ghs : 0,
+          powerW: livePowerW > 0 ? livePowerW : 0,
+        };
+      }
+      return {
+        key: prev.key,
+        ghs: Math.max(prev.ghs, ghs),
+        powerW: Math.max(prev.powerW, livePowerW),
+      };
+    });
+  }, [boardKey, deviceHsLive, shownHs, livePowerW]);
+
+  const hashScale = hashrateGaugeScale(
+    shownHs > 0 ? shownHs / 1e9 : 0,
+    gaugePeak.ghs
+  );
+  const pwrScale = powerGaugeScale(livePowerW, gaugePeak.powerW);
+
   if (dash.loading && !dash.user) {
     return (
       <div className="min-h-dvh flex items-center justify-center bg-[var(--bg)]">
@@ -393,6 +474,7 @@ export function Dashboard({ address, onLogout }: Props) {
                   <span className="text-[9px] font-normal text-[var(--fg)]0 tracking-[0.2em] uppercase">
                     Intelligence
                   </span>
+                  <VersionBadge className="ml-1.5" />
                 </div>
                 <ConnectionLight status={status} />
               </div>
@@ -467,10 +549,15 @@ export function Dashboard({ address, onLogout }: Props) {
 
         {/* ===== TAB: home (gauges + network) — first screen ===== */}
         {tab === "home" && (
-          <>
+          <div className="relative space-y-3 overflow-hidden">
+            {/* Soft amber scan bar — same as engine, home only */}
+            <div
+              className="engine-scan pointer-events-none absolute inset-x-0 z-10 h-14 bg-gradient-to-b from-transparent via-amber-500/12 to-transparent"
+              aria-hidden
+            />
         {/* Board live strip — critical path */}
         <div
-          className={`rounded-xl border px-3 py-2 text-[11px] font-mono ${
+          className={`relative z-[1] rounded-xl border px-3 py-2 text-[11px] font-mono ${
             boardLive
               ? "border-emerald-600/50 bg-emerald-950/40 text-emerald-300"
               : "border-red-800/50 bg-red-950/30 text-red-300"
@@ -487,19 +574,18 @@ export function Dashboard({ address, onLogout }: Props) {
               : "BOARD OFFLINE · source engine idle · connect IP / auto-scan / start-bridge.bat"}
         </div>
 
-        {/* Ferrari-style instrument cluster + pulse laser rim */}
-        <section className="relative rounded-2xl border border-[var(--border)] bg-gradient-to-b from-zinc-950 via-zinc-900 to-black p-3 sm:p-4 shadow-[inset_0_1px_0_rgba(250,204,21,0.08),0_8px_32px_rgba(0,0,0,0.35)] overflow-hidden">
-          <PulseLaser intervalSec={6.5} />
-          <div className="relative z-[1] flex items-center justify-between gap-2 mb-2">
-            <div className="text-[10px] uppercase tracking-[0.28em] text-amber-500 font-semibold">
-              SoloPulse · FERRARI CLUSTER
+        {/* Analog instrument cluster — retro hi-fi panel (light + dark) */}
+        <section className="sp-retro-cluster p-3 sm:p-4">
+          <div className="flex items-center justify-between gap-2 mb-3">
+            <div className="text-[10px] uppercase tracking-[0.28em] text-amber-700 dark:text-amber-500 font-semibold">
+              SoloPulse · ANALOG CLUSTER
             </div>
             <div
               className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
                 shownHs > 0 || !!dash.user
-                  ? "border-emerald-600/50 text-emerald-400"
+                  ? "border-emerald-600/50 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10"
                   : dash.loading
-                    ? "border-amber-600/50 text-amber-400"
+                    ? "border-amber-600/50 text-amber-700 dark:text-amber-400 bg-amber-500/10"
                     : "border-[var(--border)] text-[var(--muted)]"
               }`}
             >
@@ -516,49 +602,40 @@ export function Dashboard({ address, onLogout }: Props) {
                     : "IDLE"}
             </div>
           </div>
-          <div className="flex flex-wrap justify-around gap-2 sm:gap-4">
+          <div className="flex flex-wrap justify-around items-start gap-3 sm:gap-5 overflow-visible pb-1">
             <AnalogGauge
-              value={shownHs > 0 ? shownHs / 1e9 : 0}
+              value={hashScale.value}
               min={0}
-              max={Math.max(6000, (shownHs / 1e9) * 1.25 || 5000)}
+              max={hashScale.max}
               label="HASHRATE"
-              unit="GH/s"
-              live
-              decimals={1}
-              sensitiveScale
+              unit={hashScale.unit}
+              live={boardLive || shownHs > 0}
+              decimals={hashScale.decimals}
             />
             <AnalogGauge
               value={deviceTemp != null && Number.isFinite(deviceTemp) ? deviceTemp : 0}
-              min={20}
-              max={90}
+              min={0}
+              max={100}
               label="TEMP"
               unit="°C"
               warnAt={55}
               dangerAt={TEMP_HOT_C}
-              live={deviceTemp != null}
+              live={boardLive && deviceTemp != null}
               decimals={1}
-              sensitiveScale
             />
             <AnalogGauge
-              value={
-                agent.powerW != null && Number.isFinite(agent.powerW)
-                  ? agent.powerW
-                  : deviceHr.device?.power != null
-                    ? Number(deviceHr.device.power)
-                    : 0
-              }
+              value={pwrScale.value}
               min={0}
-              max={150}
+              max={pwrScale.max}
               label="POWER"
               unit="W"
-              live
-              decimals={1}
-              sensitiveScale
+              live={boardLive && pwrScale.value > 0}
+              decimals={pwrScale.decimals}
             />
           </div>
-          <div className="mt-2 text-center font-mono text-2xl sm:text-3xl text-[var(--fg)] tabular-nums tracking-tight">
+          <div className="sp-retro-hash-readout mt-2 text-center font-mono text-2xl sm:text-3xl tabular-nums tracking-tight font-bold">
             {shownHs > 0 ? formatHashrateGhs(shownHs, 2) : "—"}
-            <span className="text-sm text-amber-500 ml-2">
+            <span className="text-sm text-amber-700 dark:text-amber-500 ml-2 font-semibold">
               {hrSource === "device"
                 ? agent.hasLiveHashrate
                   ? "AGENT"
@@ -566,7 +643,7 @@ export function Dashboard({ address, onLogout }: Props) {
                 : "POOL"}
             </span>
           </div>
-          <div className="text-center text-[10px] font-mono text-[var(--fg)]0 mt-1 break-all">
+          <div className="sp-retro-meta text-center text-[10px] font-mono mt-1 break-all">
             {agent.hasLiveHashrate
               ? `${agent.deviceModel || "miner"} · ${agent.hostIp || "—"} · age ${
                   deviceAgeMs != null ? `${(deviceAgeMs / 1000).toFixed(0)}s` : "—"
@@ -990,7 +1067,7 @@ export function Dashboard({ address, onLogout }: Props) {
             </div>
           </section>
         )}
-          </>
+          </div>
         )}
 
         {/* ===== TAB: engine ===== */}
@@ -1009,6 +1086,7 @@ export function Dashboard({ address, onLogout }: Props) {
                     ? "STREAMING"
                     : agent.agentStatus || deviceHr.status || "NO_BOARD"
                 }
+                enhanced={engineEnhanced}
               />
             )}
             {!boardLive && (
@@ -1120,6 +1198,26 @@ export function Dashboard({ address, onLogout }: Props) {
             <p className="text-center text-[10px] text-[var(--muted)]">
               <BtcDisclaimer className="align-middle" />
             </p>
+
+            {/* Bridge tab info footer */}
+            <section className="rounded-2xl border border-[var(--border)] bg-[var(--card)] px-3 py-3 flex flex-wrap items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-[9px] uppercase tracking-[0.2em] text-[var(--muted)] font-semibold">
+                  SoloPulse · Info
+                </div>
+                <div className="text-xs text-[var(--fg)] mt-0.5">
+                  {locale === "ko"
+                    ? "로컬 브리지 · 보드 실시간 연동"
+                    : "Local bridge · live board link"}
+                </div>
+              </div>
+              <div className="shrink-0 text-right">
+                <div className="text-[9px] uppercase tracking-wider text-[var(--muted)]">
+                  {locale === "ko" ? "버전" : "Version"}
+                </div>
+                <VersionBadge size="md" />
+              </div>
+            </section>
           </div>
         )}
       </main>

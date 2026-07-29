@@ -101,6 +101,7 @@ export function SourceContactPanel({
         contact={contact}
         hashrateHs={hashrateBase}
         lastShareUnix={lastShare}
+        live={!!deviceOnline && hashrateBase > 0}
       />
 
       {/* Truth banner — 100% ≠ BTC */}

@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
+import { formatGaugeTick } from "@/lib/gaugeScale";
 
 /**
- * Ferrari-inspired analog cluster gauge.
- * Black carbon face · yellow/white ticks · red danger arc · yellow-red needle.
- * Spring needle + optional micro live wobble (0.1 unit sensitivity).
+ * Classic analog instrument — perfect circular dial.
+ * Cream face · brass bezel · red needle · spring motion.
+ * Scale is full range (min→max); tick labels spaced to avoid overlap.
  */
 export function AnalogGauge({
   value,
@@ -15,10 +16,9 @@ export function AnalogGauge({
   unit = "",
   warnAt,
   dangerAt,
-  size = 148,
+  size = 156,
   live = true,
   decimals,
-  sensitiveScale = false,
 }: {
   value: number;
   min?: number;
@@ -30,6 +30,7 @@ export function AnalogGauge({
   size?: number;
   live?: boolean;
   decimals?: number;
+  /** @deprecated kept for call-site compat — full device scale preferred */
   sensitiveScale?: boolean;
 }) {
   const uid = useId().replace(/:/g, "");
@@ -39,6 +40,14 @@ export function AnalogGauge({
   const targetRef = useRef(target);
   const velRef = useRef(0);
   const rafRef = useRef(0);
+
+  // Stable full-scale bounds (device scale from parent)
+  const scaleMin = min;
+  const scaleMax = Math.max(max, min + 1e-6);
+  const scaleMinRef = useRef(scaleMin);
+  const scaleMaxRef = useRef(scaleMax);
+  scaleMinRef.current = scaleMin;
+  scaleMaxRef.current = scaleMax;
 
   useEffect(() => {
     targetRef.current = target;
@@ -50,27 +59,28 @@ export function AnalogGauge({
       if (!alive) return;
       const t = targetRef.current;
       let cur = displayRef.current;
-      const stiffness = 0.24;
-      const damping = 0.7;
       let vel = velRef.current;
-      vel = (vel + (t - cur) * stiffness) * damping;
+      vel = (vel + (t - cur) * 0.28) * 0.66;
       if (Math.abs(t - cur) < 0.0005 && Math.abs(vel) < 0.0005) {
         cur = t;
         vel = 0;
-      } else {
-        cur += vel;
-      }
+      } else cur += vel;
       let shown = cur;
-      if (live && t > min) {
-        const wobbleAmp = Math.max(0.04, Math.min(0.12, Math.abs(t) * 0.00002 + 0.05));
-        const phase = Date.now() / 1000;
-        const wobble =
-          Math.sin(phase * 2.7) * wobbleAmp * 0.55 +
-          Math.sin(phase * 5.1 + 1.3) * wobbleAmp * 0.35 +
-          Math.sin(phase * 11.0) * wobbleAmp * 0.15;
-        if (Math.abs(t - cur) < Math.max(0.5, Math.abs(t) * 0.002)) {
-          shown = cur + wobble;
-        }
+      // Always micro-wobble when live so needles never look frozen
+      if (live) {
+        const span = Math.max(
+          1e-6,
+          scaleMaxRef.current - scaleMinRef.current
+        );
+        // ~0.35–0.9% of full scale — visible but still “instrument” fine
+        const amp = span * 0.0055;
+        const ph = Date.now() / 1000;
+        const base = Math.abs(t - cur) < span * 0.02 ? cur : cur;
+        shown =
+          base +
+          Math.sin(ph * 2.8) * amp * 0.55 +
+          Math.sin(ph * 6.1) * amp * 0.3 +
+          Math.sin(ph * 13.7) * amp * 0.15;
       }
       velRef.current = vel;
       displayRef.current = cur;
@@ -82,61 +92,39 @@ export function AnalogGauge({
       alive = false;
       cancelAnimationFrame(rafRef.current);
     };
-  }, [live, min]);
-
-  const { scaleMin, scaleMax } = useMemo(() => {
-    if (!sensitiveScale || !(target > 0)) {
-      return { scaleMin: min, scaleMax: Math.max(max, min + 1e-6) };
-    }
-    const half = Math.max(Math.abs(target) * 0.12, (max - min) * 0.08, 8);
-    const lo = Math.max(min, target - half);
-    let hi = Math.max(lo + 1e-6, target + half);
-    hi = Math.min(Math.max(hi, max * 0.5), Math.max(max, target * 1.2));
-    return { scaleMin: lo, scaleMax: hi };
-  }, [sensitiveScale, target, min, max]);
-
-  const [animMin, setAnimMin] = useState(scaleMin);
-  const [animMax, setAnimMax] = useState(scaleMax);
-  useEffect(() => {
-    const id = window.setInterval(() => {
-      setAnimMin((m) => m + (scaleMin - m) * 0.08);
-      setAnimMax((m) => m + (scaleMax - m) * 0.08);
-    }, 50);
-    return () => clearInterval(id);
-  }, [scaleMin, scaleMax]);
+  }, [live]);
 
   const v = display;
-  const span = animMax - animMin || 1;
-  const pct = Math.max(0, Math.min(1, (v - animMin) / span));
-  // Ferrari cluster: ~240° sweep, redline on the right
-  const START = -125;
-  const SWEEP = 250;
+  const span = scaleMax - scaleMin || 1;
+  const pct = Math.max(0, Math.min(1, (v - scaleMin) / span));
+  const START = -120;
+  const SWEEP = 240;
   const angle = START + pct * SWEEP;
 
   const warnPct =
-    warnAt != null
-      ? Math.max(0, Math.min(1, (warnAt - animMin) / span))
-      : 0.72;
+    warnAt != null ? Math.max(0, Math.min(1, (warnAt - scaleMin) / span)) : 0.72;
   const dangerPct =
     dangerAt != null
-      ? Math.max(0, Math.min(1, (dangerAt - animMin) / span))
-      : 0.85;
+      ? Math.max(0, Math.min(1, (dangerAt - scaleMin) / span))
+      : 0.86;
 
-  const r = size / 2 - 12;
+  const pad = 3;
   const cx = size / 2;
-  const cy = size / 2 + 6;
+  const cy = size / 2;
+  const outerR = size / 2 - pad;
+  const r = outerR - 10;
+
   const toXY = (deg: number, rad = r) => {
     const a = ((deg - 90) * Math.PI) / 180;
     return [cx + rad * Math.cos(a), cy + rad * Math.sin(a)];
   };
-  const arcPath = (fromDeg: number, toDeg: number, rad: number) => {
-    const [x1, y1] = toXY(fromDeg, rad);
-    const [x2, y2] = toXY(toDeg, rad);
-    const large = toDeg - fromDeg > 180 ? 1 : 0;
+  const arcPath = (from: number, to: number, rad: number) => {
+    const [x1, y1] = toXY(from, rad);
+    const [x2, y2] = toXY(to, rad);
+    const large = to - from > 180 ? 1 : 0;
     return `M ${x1} ${y1} A ${rad} ${rad} 0 ${large} 1 ${x2} ${y2}`;
   };
 
-  const track = arcPath(START, START + SWEEP, r - 4);
   const greenEnd = START + Math.min(warnPct, 1) * SWEEP;
   const yellowEnd = START + Math.min(Math.max(dangerPct, warnPct), 1) * SWEEP;
   const redEnd = START + SWEEP;
@@ -144,157 +132,133 @@ export function AnalogGauge({
   const dec =
     decimals != null
       ? decimals
-      : Math.abs(target) >= 10000
+      : Math.abs(target) >= 100
         ? 0
-        : 1;
+        : Math.abs(target) >= 10
+          ? 1
+          : 2;
+  const text = Number.isFinite(v)
+    ? Math.abs(v) >= 1000
+      ? v.toFixed(0)
+      : v.toFixed(dec)
+    : "—";
 
-  const text =
-    Number.isFinite(v)
-      ? Math.abs(v) >= 10000
-        ? v.toFixed(0)
-        : v.toFixed(dec)
-      : "—";
+  // 5 major labels only (0 · 25 · 50 · 75 · 100%) — even spacing, no pile-up
+  const majorCount = 4;
+  const labels = Array.from({ length: majorCount + 1 }, (_, i) => {
+    const p = i / majorCount;
+    const val = scaleMin + p * span;
+    const deg = START + p * SWEEP;
+    // Keep scale numbers on the arc ring; ends stay slightly higher so readout below stays clear
+    const nearEnd = i === 0 || i === majorCount;
+    const labelR = nearEnd ? r - 28 : r - 22;
+    const [lx, ly] = toXY(deg, labelR);
+    return { val, lx, ly, deg };
+  });
 
-  const needleColor =
-    dangerAt != null && target >= dangerAt
-      ? "#ef4444"
-      : warnAt != null && target >= warnAt
-        ? "#fbbf24"
-        : "#facc15";
+  const screwR = r + 6.5;
+  const screws = [45, 135, 225, 315].map((deg) => {
+    const a = ((deg - 90) * Math.PI) / 180;
+    return { x: cx + screwR * Math.cos(a), y: cy + screwR * Math.sin(a) };
+  });
+
+  const tickLabelSize = size < 150 ? 7 : size < 170 ? 7.5 : 8.5;
+  const valueSize = size < 150 ? 11 : size < 170 ? 12.5 : 14;
+  // Same style as before — only nudged slightly down to clear scale marks
+  const readoutY = cy + r * 0.54;
 
   return (
-    <div className="flex flex-col items-center select-none">
+    <div className="flex flex-col items-center select-none gap-1.5">
       <svg
         width={size}
-        height={size * 0.82}
-        viewBox={`0 0 ${size} ${size * 0.86}`}
-        className="drop-shadow-[0_4px_12px_rgba(0,0,0,0.45)]"
+        height={size}
+        viewBox={`0 0 ${size} ${size}`}
+        className="block shrink-0 drop-shadow-[0_4px_12px_rgba(0,0,0,0.45)]"
       >
         <defs>
-          {/* Carbon / piano black face */}
-          <radialGradient id={`face-${uid}`} cx="42%" cy="38%" r="70%">
-            <stop offset="0%" stopColor="#2a2a2e" />
-            <stop offset="45%" stopColor="#121214" />
-            <stop offset="100%" stopColor="#050505" />
+          <radialGradient id={`cream-${uid}`} cx="38%" cy="32%" r="78%">
+            <stop offset="0%" stopColor="#f7f1e4" />
+            <stop offset="40%" stopColor="#e9dfc8" />
+            <stop offset="75%" stopColor="#d4c4a8" />
+            <stop offset="100%" stopColor="#b8a686" />
           </radialGradient>
-          <linearGradient id={`bezel-${uid}`} x1="0" y1="0" x2="1" y2="1">
-            <stop offset="0%" stopColor="#6b7280" />
-            <stop offset="35%" stopColor="#1f1f23" />
-            <stop offset="70%" stopColor="#9ca3af" />
-            <stop offset="100%" stopColor="#111113" />
+          <radialGradient id={`face-grain-${uid}`} cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stopColor="#000000" stopOpacity="0" />
+            <stop offset="70%" stopColor="#5c4a32" stopOpacity="0.03" />
+            <stop offset="100%" stopColor="#3f2e14" stopOpacity="0.08" />
+          </radialGradient>
+          <linearGradient id={`brass-${uid}`} x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#e8c99a" />
+            <stop offset="25%" stopColor="#c9a227" />
+            <stop offset="50%" stopColor="#8b6914" />
+            <stop offset="75%" stopColor="#d4a574" />
+            <stop offset="100%" stopColor="#5c4a1f" />
           </linearGradient>
-          <linearGradient id={`rim-y-${uid}`} x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="#a16207" />
-            <stop offset="50%" stopColor="#facc15" />
-            <stop offset="100%" stopColor="#a16207" />
+          <linearGradient id={`brass-ring-${uid}`} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="#f0d9a8" />
+            <stop offset="35%" stopColor="#a67c2e" />
+            <stop offset="65%" stopColor="#6b5420" />
+            <stop offset="100%" stopColor="#d4b06a" />
           </linearGradient>
-          <filter id={`glow-${uid}`} x="-40%" y="-40%" width="180%" height="180%">
-            <feGaussianBlur stdDeviation="2.2" result="b" />
-            <feMerge>
-              <feMergeNode in="b" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
+          <radialGradient id={`glass-${uid}`} cx="32%" cy="28%" r="68%">
+            <stop offset="0%" stopColor="#ffffff" stopOpacity="0.35" />
+            <stop offset="35%" stopColor="#ffffff" stopOpacity="0.08" />
+            <stop offset="70%" stopColor="#ffffff" stopOpacity="0" />
+            <stop offset="100%" stopColor="#000000" stopOpacity="0.14" />
+          </radialGradient>
           <filter id={`soft-${uid}`}>
             <feGaussianBlur stdDeviation="1.2" />
           </filter>
         </defs>
 
-        {/* Outer chrome bezel */}
+        <circle cx={cx} cy={cy + 1.5} r={outerR} fill="#000" opacity="0.22" />
+
         <circle
           cx={cx}
           cy={cy}
-          r={r + 9}
-          fill={`url(#bezel-${uid})`}
-          stroke="#0a0a0a"
-          strokeWidth="1"
+          r={outerR}
+          fill={`url(#brass-ring-${uid})`}
+          stroke="#2a1f0c"
+          strokeWidth="1.1"
         />
-        {/* Yellow pulse ring (Ferrari yellow accent) */}
+        <circle cx={cx} cy={cy} r={outerR - 3.5} fill="#1a1510" stroke="#0a0806" strokeWidth="0.5" />
         <circle
           cx={cx}
           cy={cy}
-          r={r + 7.2}
-          fill="none"
-          stroke={`url(#rim-y-${uid})`}
-          strokeWidth="1.4"
-          opacity="0.85"
-        />
-        {/* Inner black face */}
-        <circle
-          cx={cx}
-          cy={cy}
-          r={r + 1}
-          fill={`url(#face-${uid})`}
-          stroke="#1c1917"
-          strokeWidth="2"
-        />
-        {/* Subtle inner vignette ring */}
-        <circle
-          cx={cx}
-          cy={cy}
-          r={r - 2}
-          fill="none"
-          stroke="#000"
-          strokeWidth="6"
-          opacity="0.35"
+          r={outerR - 5.5}
+          fill={`url(#brass-${uid})`}
+          stroke="#3f2e14"
+          strokeWidth="0.7"
         />
 
-        {/* Track base */}
-        <path
-          d={track}
-          fill="none"
-          stroke="#1c1917"
-          strokeWidth="7"
-          strokeLinecap="butt"
-        />
-        {/* Green / normal zone */}
-        <path
-          d={arcPath(START, greenEnd, r - 4)}
-          fill="none"
-          stroke="#22c55e"
-          strokeWidth="5"
-          strokeLinecap="butt"
-          opacity="0.75"
-        />
-        {/* Yellow warn */}
+        {screws.map((s, i) => (
+          <g key={i}>
+            <circle cx={s.x} cy={s.y} r={2.4} fill="#6b5a3a" stroke="#2a2010" strokeWidth="0.55" />
+            <circle cx={s.x} cy={s.y} r={1.7} fill={`url(#brass-${uid})`} />
+            <line x1={s.x - 1.2} y1={s.y} x2={s.x + 1.2} y2={s.y} stroke="#2a2010" strokeWidth="0.5" />
+            <line x1={s.x} y1={s.y - 1.2} x2={s.x} y2={s.y + 1.2} stroke="#2a2010" strokeWidth="0.5" />
+          </g>
+        ))}
+
+        <circle cx={cx} cy={cy} r={r} fill={`url(#cream-${uid})`} stroke="#7a6a50" strokeWidth="1.3" />
+        <circle cx={cx} cy={cy} r={r} fill={`url(#face-grain-${uid})`} />
+        <circle cx={cx} cy={cy} r={r - 2.5} fill="none" stroke="#a89880" strokeWidth="0.65" opacity="0.65" />
+
+        <path d={arcPath(START, greenEnd, r - 7)} fill="none" stroke="#15803d" strokeWidth="4.5" opacity="0.32" />
         {yellowEnd > greenEnd && (
-          <path
-            d={arcPath(greenEnd, yellowEnd, r - 4)}
-            fill="none"
-            stroke="#eab308"
-            strokeWidth="5"
-            strokeLinecap="butt"
-            opacity="0.9"
-          />
+          <path d={arcPath(greenEnd, yellowEnd, r - 7)} fill="none" stroke="#a16207" strokeWidth="4.5" opacity="0.42" />
         )}
-        {/* Redline */}
         {redEnd > yellowEnd && (
-          <path
-            d={arcPath(yellowEnd, redEnd, r - 4)}
-            fill="none"
-            stroke="#dc2626"
-            strokeWidth="6"
-            strokeLinecap="butt"
-            opacity="0.95"
-            filter={`url(#glow-${uid})`}
-          />
+          <path d={arcPath(yellowEnd, redEnd, r - 7)} fill="none" stroke="#991b1b" strokeWidth="5.5" opacity="0.5" />
         )}
-        {/* Value arc (thin yellow) */}
-        <path
-          d={arcPath(START, START + pct * SWEEP, r - 4)}
-          fill="none"
-          stroke="#fde047"
-          strokeWidth="2"
-          strokeLinecap="round"
-          opacity="0.55"
-        />
 
-        {/* Ticks — Ferrari style dense marks */}
-        {Array.from({ length: 26 }).map((_, i) => {
-          const d = START + (i / 25) * SWEEP;
-          const major = i % 5 === 0;
-          const [x1, y1] = toXY(d, r - 8);
-          const [x2, y2] = toXY(d, r - (major ? 18 : 12));
+        {/* Minor ticks only between majors — denser marks, no numbers */}
+        {Array.from({ length: 41 }).map((_, i) => {
+          const d = START + (i / 40) * SWEEP;
+          const major = i % 10 === 0;
+          const mid = i % 5 === 0;
+          const [x1, y1] = toXY(d, r - 5);
+          const [x2, y2] = toXY(d, r - (major ? 15 : mid ? 11 : 8));
           const hot = d >= yellowEnd;
           return (
             <line
@@ -303,71 +267,100 @@ export function AnalogGauge({
               y1={y1}
               x2={x2}
               y2={y2}
-              stroke={hot ? "#f87171" : major ? "#fafafa" : "#a8a29e"}
-              strokeWidth={major ? 1.8 : 1}
+              stroke={hot ? "#7f1d1d" : major ? "#1c1917" : "#57534e"}
+              strokeWidth={major ? 1.6 : mid ? 1 : 0.6}
               opacity={major ? 0.95 : 0.55}
+              strokeLinecap="round"
             />
           );
         })}
 
-        {/* Needle shadow */}
-        <g transform={`rotate(${angle} ${cx} ${cy})`} opacity="0.35">
+        {/* Scale numbers — compact, 5 only */}
+        {labels.map((L, i) => (
+          <text
+            key={i}
+            x={L.lx}
+            y={L.ly + 2.5}
+            textAnchor="middle"
+            fill="#1c1917"
+            fontSize={tickLabelSize}
+            fontFamily="ui-monospace, 'Courier New', monospace"
+            fontWeight="700"
+            opacity="0.92"
+          >
+            {formatGaugeTick(L.val, unit)}
+          </text>
+        ))}
+
+        <text
+          x={cx}
+          y={cy - r * 0.2}
+          textAnchor="middle"
+          fill="#78716c"
+          fontSize={size < 160 ? 5.5 : 6.5}
+          fontFamily="Georgia, serif"
+          fontWeight="600"
+          letterSpacing="1.2"
+          opacity="0.45"
+        >
+          SOLOPULSE
+        </text>
+
+        {/* Needle */}
+        <g transform={`rotate(${angle} ${cx} ${cy})`} opacity="0.28">
           <polygon
-            points={`${cx - 2.2},${cy + 10} ${cx + 2.2},${cy + 10} ${cx},${cy - (r - 16)}`}
+            points={`${cx - 2.4},${cy + 12} ${cx + 2.4},${cy + 12} ${cx},${cy - (r - 18)}`}
             fill="#000"
             filter={`url(#soft-${uid})`}
           />
         </g>
-        {/* Ferrari needle — yellow/red blade */}
         <g transform={`rotate(${angle} ${cx} ${cy})`}>
           <polygon
-            points={`${cx - 2},${cy + 12} ${cx + 2},${cy + 12} ${cx + 0.6},${cy - (r - 14)} ${cx - 0.6},${cy - (r - 14)}`}
-            fill={needleColor}
-            filter={`url(#glow-${uid})`}
+            points={`${cx - 2.1},${cy + 14} ${cx + 2.1},${cy + 14} ${cx + 0.75},${cy - (r - 16)} ${cx - 0.75},${cy - (r - 16)}`}
+            fill="#9f1239"
           />
-          <line
-            x1={cx}
-            y1={cy + 8}
-            x2={cx}
-            y2={cy - (r - 18)}
-            stroke="#fff7ed"
-            strokeWidth="0.6"
-            opacity="0.7"
+          <polygon
+            points={`${cx - 0.45},${cy + 6} ${cx + 0.45},${cy + 6} ${cx},${cy - (r - 20)}`}
+            fill="#fecdd3"
+            opacity="0.9"
+          />
+          <rect
+            x={cx - 2.8}
+            y={cy + 8}
+            width={5.6}
+            height={7}
+            rx={1}
+            fill="#44403c"
+            stroke="#1c1917"
+            strokeWidth="0.5"
           />
         </g>
-        {/* Hub */}
-        <circle cx={cx} cy={cy} r={8} fill="#0a0a0a" stroke="#facc15" strokeWidth="1.5" />
-        <circle cx={cx} cy={cy} r={3.5} fill="#fde047" opacity="0.95" />
 
-        {/* Digital LCD strip */}
-        <rect
-          x={cx - 32}
-          y={cy + 18}
-          width={64}
-          height={18}
-          rx={3}
-          fill="#050505"
-          stroke="#292524"
-          strokeWidth="1"
-        />
+        <circle cx={cx} cy={cy} r={6.5} fill={`url(#brass-${uid})`} stroke="#3f2e14" strokeWidth="1" />
+        <circle cx={cx} cy={cy} r={3.5} fill="#292524" />
+        <circle cx={cx} cy={cy} r={1.5} fill="#0c0a09" />
+
+        <circle cx={cx} cy={cy} r={r - 0.5} fill={`url(#glass-${uid})`} />
+
+        {/* Digital readout — original inline style, slightly lower */}
         <text
           x={cx}
-          y={cy + 31}
+          y={readoutY}
           textAnchor="middle"
-          fill="#fde047"
-          fontSize="11"
-          fontFamily="ui-monospace, monospace"
+          fill="#1c1917"
+          fontSize={valueSize}
+          fontFamily="ui-monospace, 'Courier New', monospace"
           fontWeight="700"
-          letterSpacing="0.5"
         >
           {text}
-          <tspan fill="#a8a29e" fontSize="7">
+          <tspan fill="#44403c" fontSize={valueSize * 0.55} fontWeight="600">
             {" "}
             {unit}
           </tspan>
         </text>
       </svg>
-      <div className="text-[9px] uppercase tracking-[0.28em] text-amber-600/90 font-semibold -mt-0.5">
+
+      <div className="text-[10px] sm:text-[11px] uppercase tracking-[0.18em] font-bold leading-none text-center text-amber-800 dark:text-amber-500 drop-shadow-sm">
         {label}
       </div>
     </div>

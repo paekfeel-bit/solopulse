@@ -25,6 +25,13 @@ import {
 import { SourceRadar } from "./SourceRadar";
 import { EngineCore } from "./EngineCore";
 import { BtcDisclaimer } from "./BtcDisclaimer";
+import {
+  loadBestShareTrend,
+  pushBestShareSample,
+  type BestShareTrend,
+  type HashratePoint,
+} from "@/lib/mechanismEnhanced";
+import { loadHistory } from "@/lib/history";
 
 function pick(locale: Locale, o: { ko: string; en: string; ja: string }) {
   return o[locale] || o.en;
@@ -70,6 +77,31 @@ export function SourceEngineHub({
   const [tab, setTab] = useState<"overview" | "methods" | "math" | "cases">(
     "overview"
   );
+  const [bestTrend, setBestTrend] = useState<BestShareTrend>({
+    timestamps: [],
+    values: [],
+  });
+  const [hrHistory, setHrHistory] = useState<HashratePoint[]>([]);
+
+  // v2.5: track bestShare + hashrate history for EVT / acceleration
+  useEffect(() => {
+    if (bestShare > 0) {
+      setBestTrend(pushBestShareSample(bestShare));
+    } else {
+      setBestTrend(loadBestShareTrend());
+    }
+  }, [bestShare]);
+
+  useEffect(() => {
+    if (!(hashrateBase > 0)) return;
+    setHrHistory((prev) => {
+      const next = [
+        ...prev,
+        { timestamp: Date.now() / 1000, hashrateHs: hashrateBase },
+      ].slice(-48);
+      return next;
+    });
+  }, [hashrateBase]);
 
   useEffect(() => {
     let cancelled = false;
@@ -152,6 +184,23 @@ export function SourceEngineHub({
   );
 
   const synth = useMemo(() => {
+    // Seed HR history from local chart samples if sparse
+    let hist = hrHistory;
+    if (hist.length < 3 && typeof window !== "undefined") {
+      try {
+        const samples = loadHistory(
+          (typeof window !== "undefined" &&
+            (window.localStorage.getItem("solopulse:address") || "")) ||
+            "default"
+        );
+        hist = samples.slice(-40).map((s) => ({
+          timestamp: s.t / 1000,
+          hashrateHs: s.ghs * 1e9,
+        }));
+      } catch {
+        /* */
+      }
+    }
     const base = synthesizeMechanism({
       hashrateHs: hashrateBase,
       difficulty: networkDiff,
@@ -160,6 +209,8 @@ export function SourceEngineHub({
       recentBlockIntervalsSec: intervals,
       recentPoolNames: blocks.map((b) => b.poolName),
       networkHashrateHs: networkHashrateHs > 0 ? networkHashrateHs : null,
+      bestShareTrend: bestTrend,
+      hashrateHistory: hist,
     });
     const wave = runMonteCarlo({
       hashrateHs: hashrateBase,
@@ -181,6 +232,8 @@ export function SourceEngineHub({
     blocks,
     simWave,
     networkHashrateHs,
+    bestTrend,
+    hrHistory,
   ]);
 
   const math = synth.math;
@@ -202,11 +255,15 @@ export function SourceEngineHub({
     locale === "ja" ? "ja" : locale === "en" ? "en" : "ko"
   );
 
-  // Blend: contact overall + consensus for unified "engine alignment"
+  // Blend: contact + consensus + v2.5 readiness
+  const readiness = synth.enhanced?.blockReadiness ?? 0;
   const engineAlign = Math.min(
     100,
-    contact.overall * 0.45 + synth.consensus * 100 * 0.55
+    contact.overall * 0.35 +
+      synth.consensus * 100 * 0.35 +
+      readiness * 0.3
   );
+  const enh = synth.enhanced;
 
   const eta = useMemo(
     () =>
@@ -235,12 +292,29 @@ export function SourceEngineHub({
       : 0;
 
   const offlineDevice = hasDevice && !deviceOnline;
+  /** Board streaming + browser online → visualizations animate */
+  const [netOnline, setNetOnline] = useState(true);
+  useEffect(() => {
+    const up = () => setNetOnline(true);
+    const down = () => setNetOnline(false);
+    setNetOnline(typeof navigator !== "undefined" ? navigator.onLine : true);
+    window.addEventListener("online", up);
+    window.addEventListener("offline", down);
+    return () => {
+      window.removeEventListener("online", up);
+      window.removeEventListener("offline", down);
+    };
+  }, []);
+  const engineLive =
+    !!deviceOnline && netOnline && hashrateBase > 0;
 
   return (
     <section className="rounded-2xl border border-orange-600/40 bg-gradient-to-b from-[var(--card)] via-[var(--card)] to-zinc-950/30 p-3 sm:p-4 space-y-3 sm:space-y-4 overflow-hidden relative min-w-0">
-      <div className="pointer-events-none absolute inset-0 overflow-hidden opacity-25">
-        <div className="engine-scan absolute inset-x-0 h-16 bg-gradient-to-b from-transparent via-amber-500/15 to-transparent" />
-      </div>
+      {engineLive && (
+        <div className="pointer-events-none absolute inset-0 overflow-hidden opacity-25">
+          <div className="engine-scan absolute inset-x-0 h-16 bg-gradient-to-b from-transparent via-amber-500/15 to-transparent" />
+        </div>
+      )}
 
       {/* Header */}
       <div className="relative flex flex-col sm:flex-row sm:flex-wrap sm:items-start sm:justify-between gap-2">
@@ -253,8 +327,22 @@ export function SourceEngineHub({
                   ? "ソース・エンジン"
                   : "Source Engine"}
             </h2>
-            <span className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-400 border border-orange-500/30 animate-pulse shrink-0">
-              LIVE
+            <span
+              className={`text-[9px] font-mono px-1.5 py-0.5 rounded border shrink-0 ${
+                engineLive
+                  ? "bg-emerald-500/20 text-emerald-400 border-emerald-500/40 animate-pulse"
+                  : !netOnline
+                    ? "bg-red-500/15 text-red-400 border-red-500/40"
+                    : "bg-[var(--border)] text-[var(--muted)] border-[var(--border)]"
+              }`}
+            >
+              {engineLive
+                ? "LIVE"
+                : !netOnline
+                  ? "NET OFF"
+                  : deviceOnline
+                    ? "IDLE"
+                    : "BOARD OFF"}
             </span>
             <BtcDisclaimer className="max-w-full" />
           </div>
@@ -267,12 +355,13 @@ export function SourceEngineHub({
           </p>
         </div>
         <div className="flex sm:flex-col items-baseline sm:items-end justify-between sm:justify-start gap-2 sm:gap-0 sm:text-right shrink-0 rounded-lg sm:rounded-none border border-[var(--border)] sm:border-0 bg-[var(--bg)]/60 sm:bg-transparent px-2.5 py-1.5 sm:p-0">
-          <div className="text-[9px] text-[var(--muted)] uppercase">align</div>
+          <div className="text-[9px] text-[var(--muted)] uppercase">ready · align</div>
           <div className="text-xl sm:text-2xl font-mono font-bold text-transparent bg-clip-text bg-gradient-to-r from-amber-400 via-orange-400 to-emerald-400">
-            {engineAlign.toFixed(0)}%
+            {readiness.toFixed(0)}%
           </div>
           <div className="text-[9px] font-mono text-[var(--muted)] sm:mt-0.5">
-            c {contact.overall.toFixed(0)} · e {(synth.consensus * 100).toFixed(0)}
+            c {contact.overall.toFixed(0)} · e{" "}
+            {(synth.consensus * 100).toFixed(0)} · a {engineAlign.toFixed(0)}
           </div>
         </div>
       </div>
@@ -380,13 +469,21 @@ export function SourceEngineHub({
                 contact={contact}
                 hashrateHs={hashrateBase}
                 lastShareUnix={lastShare}
+                live={engineLive}
+                readiness={readiness}
+                evt24h={enh?.gumbel.pBlock24h}
               />
             </div>
             <div className="rounded-xl border border-[var(--border)] bg-[var(--bg)] p-2">
-              <div className="text-[10px] font-semibold text-center text-[var(--muted)] mb-1">
-                MAX ENGINE
+              <div className="text-[10px] font-semibold text-center text-amber-600 dark:text-amber-400 mb-1 tracking-wide">
+                MAX ENGINE · READY
               </div>
-              <EngineCore synth={synth} slot={slot} secSinceBlock={since} />
+              <EngineCore
+                synth={synth}
+                slot={slot}
+                secSinceBlock={since}
+                live={engineLive}
+              />
             </div>
           </div>
 
@@ -397,6 +494,173 @@ export function SourceEngineHub({
             </div>
             {pick(locale, contact.truth)}
           </div>
+
+          {/* v2.5 Block Readiness + period cards (1d / 7d / 30d) */}
+          {enh && (
+            <div className="space-y-2">
+              <div
+                className={`rounded-xl border px-3 py-2.5 ${
+                  enh.blockDetected
+                    ? "border-emerald-500/50 bg-emerald-500/15"
+                    : "border-amber-600/40 bg-[var(--bg)]"
+                }`}
+              >
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="text-[10px] uppercase tracking-wider text-amber-600 dark:text-amber-400 font-semibold">
+                      Block Readiness · v2.5
+                    </div>
+                    <div className="text-2xl font-mono font-black tabular-nums text-amber-700 dark:text-amber-300">
+                      {enh.blockDetected
+                        ? "100"
+                        : enh.blockReadiness.toFixed(1)}
+                      %
+                    </div>
+                  </div>
+                  <div className="text-right text-[10px] font-mono text-[var(--muted)] space-y-0.5">
+                    <div>
+                      EVT trend {(enh.gumbel.trendScore * 100).toFixed(0)}%
+                    </div>
+                    <div>
+                      retarget {enh.retarget.changePct >= 0 ? "+" : ""}
+                      {enh.retarget.changePct.toFixed(1)}%
+                    </div>
+                    <div>
+                      accel {(enh.acceleration.score * 100).toFixed(0)}%
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-2 h-2 rounded-full bg-[var(--border)] overflow-hidden">
+                  <div
+                    className={`h-full rounded-full transition-all duration-700 ${
+                      enh.blockDetected
+                        ? "bg-emerald-500"
+                        : "bg-gradient-to-r from-amber-700 via-amber-400 to-yellow-200"
+                    }`}
+                    style={{
+                      width: `${Math.max(
+                        2,
+                        Math.min(100, enh.blockReadiness)
+                      )}%`,
+                    }}
+                  />
+                </div>
+                <p className="mt-1.5 text-[9px] text-[var(--muted)] leading-relaxed">
+                  {locale === "ko"
+                    ? "100% = bestShare ≥ 네트워크 난이도(실제 블록 조건). Readiness는 임박·추이·리타겟 종합(≠BTC 확정)."
+                    : "100% = bestShare ≥ network D (block condition). Readiness = proximity composite (≠ guaranteed BTC)."}
+                </p>
+              </div>
+
+              {/* Period cards inspired by multi-window summary UI */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                {(
+                  [
+                    {
+                      title: locale === "ko" ? "일 · 임박" : "1d · near",
+                      sub:
+                        locale === "ko"
+                          ? "오늘 · EVT 1h / 24h"
+                          : "Today · EVT 1h / 24h",
+                      cells: [
+                        {
+                          k: "1h",
+                          v: formatSciProb(enh.gumbel.pBlock1h, 3),
+                        },
+                        {
+                          k: "24h",
+                          v: formatSciProb(enh.gumbel.pBlock24h, 3),
+                        },
+                        {
+                          k: "trend",
+                          v: `${(enh.gumbel.trendScore * 100).toFixed(0)}%`,
+                        },
+                      ],
+                      tone: "emerald" as const,
+                    },
+                    {
+                      title: locale === "ko" ? "주 · 전망" : "7d · outlook",
+                      sub:
+                        locale === "ko"
+                          ? "최근 7일 창 · EVT 7d"
+                          : "7-day window · EVT 7d",
+                      cells: [
+                        {
+                          k: "7d",
+                          v: formatSciProb(enh.gumbel.pBlock7d, 3),
+                        },
+                        {
+                          k: "E[T]",
+                          v: Number.isFinite(enh.retarget.adjustedET)
+                            ? `${enh.retarget.adjustedET.toFixed(1)}y`
+                            : "∞",
+                        },
+                        {
+                          k: "ΔD",
+                          v: `${enh.retarget.changePct >= 0 ? "+" : ""}${enh.retarget.changePct.toFixed(1)}%`,
+                        },
+                      ],
+                      tone: "amber" as const,
+                    },
+                    {
+                      title: locale === "ko" ? "30일 · 전망" : "30d · outlook",
+                      sub:
+                        locale === "ko"
+                          ? "Poisson 30d · EVT 30d"
+                          : "Poisson 30d · EVT 30d",
+                      cells: [
+                        {
+                          k: "P30",
+                          v: formatSciProb(math.poisson.d30, 3),
+                        },
+                        {
+                          k: "EVT30",
+                          v: formatSciProb(enh.gumbel.pBlock30d, 3),
+                        },
+                        {
+                          k: "eff",
+                          v:
+                            enh.effective.hashrateHs > 0
+                              ? formatHashrateGhs(enh.effective.hashrateHs, 1)
+                              : "—",
+                        },
+                      ],
+                      tone: "orange" as const,
+                    },
+                  ] as const
+                ).map((card) => (
+                  <div
+                    key={card.title}
+                    className="rounded-xl border border-emerald-800/30 bg-gradient-to-b from-emerald-950/40 via-[var(--card)] to-[var(--bg)] overflow-hidden dark:from-emerald-950/50"
+                  >
+                    <div className="bg-emerald-700 text-center text-[12px] font-bold text-white py-1.5 tracking-wide">
+                      {card.title}
+                    </div>
+                    <div className="px-2 py-2 space-y-2">
+                      <div className="text-[9px] text-center text-[var(--muted)] border border-dashed border-[var(--border)] rounded-md py-0.5">
+                        {card.sub}
+                      </div>
+                      <div className="grid grid-cols-3 gap-1">
+                        {card.cells.map((c) => (
+                          <div
+                            key={c.k}
+                            className="rounded-md border border-dashed border-[var(--border)] px-1 py-1.5 text-center min-w-0"
+                          >
+                            <div className="text-[8px] uppercase text-[var(--muted)] truncate">
+                              {c.k}
+                            </div>
+                            <div className="text-[10px] font-mono font-bold text-emerald-700 dark:text-emerald-300 tabular-nums break-all leading-tight">
+                              {c.v}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* ETA while waiting for 100% */}
           <div className="rounded-xl border border-[var(--border)] bg-[var(--bg)] p-2.5 sm:p-3 grid grid-cols-1 min-[400px]:grid-cols-2 sm:grid-cols-3 gap-2">

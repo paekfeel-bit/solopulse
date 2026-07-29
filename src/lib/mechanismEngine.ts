@@ -35,6 +35,14 @@ import {
   type SoloMathCore,
   TWO_32,
 } from "./soloProbability";
+import {
+  buildEnhancedBundle,
+  type BestShareTrend,
+  type EnhancedBundle,
+  type HashratePoint,
+  type MempoolState,
+  type ShareSample,
+} from "./mechanismEnhanced";
 
 export type MethodId =
   | "protocol"
@@ -42,7 +50,8 @@ export type MethodId =
   | "monteCarlo"
   | "extremeBest"
   | "fleet"
-  | "mempoolTetris";
+  | "mempoolTetris"
+  | "evtReadiness";
 
 export type MethodResult = {
   id: MethodId;
@@ -84,6 +93,8 @@ export type MechanismSynthesis = {
   /** Closed-form + share math core */
   math: SoloMathCore;
   weakerWins: SoloWinCase[];
+  /** v2.5 enhanced readiness (optional for callers) */
+  enhanced?: EnhancedBundle;
 };
 
 export function runMonteCarlo(params: {
@@ -137,6 +148,12 @@ export function synthesizeMechanism(input: {
   recentBlockIntervalsSec?: number[];
   recentPoolNames?: string[];
   networkHashrateHs?: number | null;
+  /** v2.5 optional feeds */
+  bestShareTrend?: BestShareTrend;
+  shareSamples?: ShareSample[];
+  hashrateHistory?: HashratePoint[];
+  mempool?: MempoolState | null;
+  baseReward?: number;
 }): MechanismSynthesis {
   const h = input.hashrateHs;
   const D = input.difficulty;
@@ -335,20 +352,62 @@ export function synthesizeMechanism(input: {
     },
   ];
 
+  // ── v2.5 enhanced readiness ──
+  const enhanced = buildEnhancedBundle({
+    hashrateHs: h,
+    difficulty: D,
+    bestShare: best,
+    expectedYears: expYears,
+    bestShareTrend: input.bestShareTrend,
+    shareSamples: input.shareSamples,
+    hashrateHistory: input.hashrateHistory,
+    recentBlockIntervalsSec: input.recentBlockIntervalsSec,
+    mempool: input.mempool,
+    baseReward: input.baseReward,
+  });
+
+  methods.push({
+    id: "evtReadiness",
+    title: {
+      ko: "⑦ EVT 임박 분석 (bestShare 추이)",
+      en: "⑦ EVT proximity (bestShare trend)",
+      ja: "⑦ EVT 接近分析",
+    },
+    finding: {
+      ko: `Block Readiness ${enhanced.blockReadiness.toFixed(1)}% · EVT 24h ${(enhanced.gumbel.pBlock24h * 100).toExponential(2)}% · 추이 ${(enhanced.gumbel.trendScore * 100).toFixed(0)}% · 리타겟 ${enhanced.retarget.changePct >= 0 ? "+" : ""}${enhanced.retarget.changePct.toFixed(1)}%${enhanced.blockDetected ? " · 블록 감지" : ""}.`,
+      en: `Readiness ${enhanced.blockReadiness.toFixed(1)}% · EVT 24h ${(enhanced.gumbel.pBlock24h * 100).toExponential(2)}% · trend ${(enhanced.gumbel.trendScore * 100).toFixed(0)}% · retarget ${enhanced.retarget.changePct >= 0 ? "+" : ""}${enhanced.retarget.changePct.toFixed(1)}%${enhanced.blockDetected ? " · BLOCK" : ""}.`,
+      ja: `Readiness ${enhanced.blockReadiness.toFixed(1)}% · EVT24h ${(enhanced.gumbel.pBlock24h * 100).toExponential(2)}% · リターゲット ${enhanced.retarget.changePct.toFixed(1)}%.`,
+    },
+    supportsConclusion: 0.85 + enhanced.gumbel.trendScore * 0.12,
+    metrics: {
+      blockReadiness: enhanced.blockReadiness,
+      p24h: enhanced.gumbel.pBlock24h,
+      p1h: enhanced.gumbel.pBlock1h,
+      trendScore: enhanced.gumbel.trendScore,
+      retargetPct: enhanced.retarget.changePct,
+      blockDetected: enhanced.blockDetected ? 1 : 0,
+    },
+  });
+
   const consensus =
     methods.reduce((s, m) => s + m.supportsConclusion, 0) / methods.length;
 
+  const useH =
+    enhanced.effective.confidence > 0.5 && enhanced.effective.hashrateHs > 0
+      ? enhanced.effective.hashrateHs
+      : h;
+
   const trackableSource = {
-    ticketsPerSec: h,
+    ticketsPerSec: useH,
     pHash,
-    expectedYears: expYears,
+    expectedYears: enhanced.retarget.adjustedET || expYears,
     pLucky30d: p30,
     pLucky1y: p1y,
     bestShareLogProgress:
       D > 0 ? Math.min(1, Math.log10(1 + (best / D) * 1e12) / 12) : 0,
-    relativeToWeakestWinner: weakest && weakest.hashrateHs > 0 ? h / weakest.hashrateHs : 0,
+    relativeToWeakestWinner: weakest && weakest.hashrateHs > 0 ? useH / weakest.hashrateHs : 0,
     relativeToMedianWinner:
-      medianWinner && medianWinner.hashrateHs > 0 ? h / medianWinner.hashrateHs : 0,
+      medianWinner && medianWinner.hashrateHs > 0 ? useH / medianWinner.hashrateHs : 0,
   };
 
   const shareStr =
@@ -359,15 +418,15 @@ export function synthesizeMechanism(input: {
       : "0";
 
   const conclusion = {
-    ko: `합의 ${(consensus * 100).toFixed(0)}%: 메커니즘 = 동일 해시 복권 + 연속 티켓 + 솔로 경로. 네트워크 점유 s=${shareStr}% · λ=${math.lambdaPerSec.toExponential(4)}/s · E[T]≈${
-      Number.isFinite(math.expectedYears) ? math.expectedYears.toFixed(1) : "∞"
-    }y. 최약 승자 대비 ${trackableSource.relativeToWeakestWinner.toFixed(1)}× 티켓. 추적=가동·bestDiff·솔로풀. 테트리스≠확률 조작.`,
-    en: `Consensus ${(consensus * 100).toFixed(0)}%: same-hash lottery + tickets + solo path. Network share s=${shareStr}% · λ=${math.lambdaPerSec.toExponential(4)}/s · E[T]≈${
-      Number.isFinite(math.expectedYears) ? math.expectedYears.toFixed(1) : "∞"
-    }y. ${trackableSource.relativeToWeakestWinner.toFixed(1)}× vs weakest winner. Track uptime/bestDiff/solo. Tetris ≠ probability hack.`,
-    ja: `合意${(consensus * 100).toFixed(0)}%: 同一ハッシュ宝くじ+券+ソロ. 占有s=${shareStr}% · λ=${math.lambdaPerSec.toExponential(4)}/s · E[T]≈${
-      Number.isFinite(math.expectedYears) ? math.expectedYears.toFixed(1) : "∞"
-    }y. 最弱の${trackableSource.relativeToWeakestWinner.toFixed(1)}×. 追跡=稼働・bestDiff・ソロ.`,
+    ko: `합의 ${(consensus * 100).toFixed(0)}% · Readiness ${enhanced.blockReadiness.toFixed(1)}%${enhanced.blockDetected ? " · 블록 조건 충족" : ""}. s=${shareStr}% · E[T]≈${
+      Number.isFinite(enhanced.retarget.adjustedET) ? enhanced.retarget.adjustedET.toFixed(1) : "∞"
+    }y · EVT24h=${(enhanced.gumbel.pBlock24h * 100).toExponential(2)}%. 메커니즘=해시 복권+티켓+솔로. 100% 접촉≠BTC.`,
+    en: `Consensus ${(consensus * 100).toFixed(0)}% · Readiness ${enhanced.blockReadiness.toFixed(1)}%${enhanced.blockDetected ? " · BLOCK" : ""}. s=${shareStr}% · E[T]≈${
+      Number.isFinite(enhanced.retarget.adjustedET) ? enhanced.retarget.adjustedET.toFixed(1) : "∞"
+    }y · EVT24h=${(enhanced.gumbel.pBlock24h * 100).toExponential(2)}%. Lottery+tickets+solo. 100% contact ≠ BTC.`,
+    ja: `合意${(consensus * 100).toFixed(0)}% · Readiness ${enhanced.blockReadiness.toFixed(1)}%. s=${shareStr}% · E[T]≈${
+      Number.isFinite(enhanced.retarget.adjustedET) ? enhanced.retarget.adjustedET.toFixed(1) : "∞"
+    }y.`,
   };
 
   return {
@@ -381,6 +440,7 @@ export function synthesizeMechanism(input: {
     sim,
     math,
     weakerWins,
+    enhanced,
   };
 }
 
