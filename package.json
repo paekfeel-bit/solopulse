@@ -7,9 +7,9 @@
   },
   "scripts": {
     "dev": "next dev",
-    "build": "next build",
+    "build": "node scripts/cf-build.mjs",
     "build:next": "next build",
-    "build:cf": "opennextjs-cloudflare build",
+    "build:cf": "node scripts/cf-build.mjs",
     "start": "node server.mjs",
     "start:next": "next start",
     "lint": "next lint",

@@ -7,9 +7,8 @@ account_id = "60fff325c136cbad7a3b5a8ba3434df6"
 workers_dev = true
 preview_urls = false
 
-# CF Workers Builds: `npx wrangler deploy` runs this first (Linux), then deploys.
-[build]
-command = "npx opennextjs-cloudflare build"
+# OpenNext is produced by npm run build (scripts/cf-build.mjs) on CI.
+# Do not re-run OpenNext here or it may race / loop.
 
 [assets]
 directory = ".open-next/assets"
