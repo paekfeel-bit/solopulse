@@ -1,84 +1,151 @@
 /**
- * SoloPulse Cloudflare Worker entry (Git CI / workers.dev)
- * API/realtime lives on solopulse-api; this worker is the public edge shell.
+ * SoloPulse edge Worker — serves full app UI via origin proxy + CF API routes.
+ * Full Next.js UI origin (Vercel). Realtime/API on solopulse-api.
  */
 const API = "https://solopulse-api.paekfeel.workers.dev";
+const UI_ORIGIN = "https://solopulse-black.vercel.app";
 
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+    const uiOrigin = env.UI_ORIGIN || UI_ORIGIN;
+    const apiBase = env.API_BASE || API;
 
     if (request.method === "OPTIONS") {
-      return new Response(null, {
-        status: 204,
-        headers: corsHeaders(request),
+      return new Response(null, { status: 204, headers: corsHeaders(request) });
+    }
+
+    if (url.pathname === "/health" || url.pathname === "/api/cf-health") {
+      return json({
+        ok: true,
+        app: "SoloPulse",
+        stack: "cloudflare",
+        edge: "solopulse",
+        ui: uiOrigin,
+        api: apiBase,
       });
     }
 
-    if (url.pathname === "/health" || url.pathname === "/api/health") {
-      return json({ ok: true, app: "SoloPulse", stack: "cloudflare", edge: "solopulse" });
-    }
-
-    // Proxy API/auth/ws bootstrap paths to durable solopulse-api
+    // Auth / bridge / durable realtime → CF API worker
     if (
-      url.pathname.startsWith("/api/") ||
       url.pathname.startsWith("/auth/") ||
       url.pathname.startsWith("/ws") ||
-      url.pathname.startsWith("/bridge")
+      url.pathname.startsWith("/bridge/ws")
     ) {
-      const target = new URL(url.pathname + url.search, API);
-      const headers = new Headers(request.headers);
-      headers.delete("host");
-      const init = {
-        method: request.method,
-        headers,
-        redirect: "manual",
-      };
-      if (request.method !== "GET" && request.method !== "HEAD") {
-        init.body = request.body;
-        // @ts-ignore
-        init.duplex = "half";
-      }
-      try {
-        const res = await fetch(target, init);
-        const out = new Response(res.body, res);
-        corsHeaders(request).forEach((v, k) => out.headers.set(k, v));
-        return out;
-      } catch (err) {
-        return json({ ok: false, error: String(err) }, 502);
-      }
+      return proxyTo(request, apiBase, url);
     }
 
-    // Default: status page (full Next UI remains on separate host until static assets wired)
-    const html = `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>SoloPulse</title>
-  <style>
-    body{font-family:system-ui,sans-serif;background:#0b0f14;color:#e8eef5;margin:0;min-height:100vh;display:grid;place-items:center}
-    .card{max-width:28rem;padding:1.5rem 1.75rem;border:1px solid #1e2a36;border-radius:12px;background:#121a22}
-    h1{margin:0 0 .5rem;font-size:1.35rem}
-    p{margin:.4rem 0;color:#9fb0c0;line-height:1.45}
-    code{background:#0b0f14;padding:.15rem .35rem;border-radius:4px;color:#7dd3fc}
-    a{color:#38bdf8}
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h1>SoloPulse edge online</h1>
-    <p>Cloudflare Worker <code>solopulse</code> is live.</p>
-    <p>API: <a href="${API}/health">${API}/health</a></p>
-    <p>Mobile pipeline uses Durable Objects over <code>wss://</code> — no local terminal required once the home bridge Windows service is installed.</p>
-  </div>
-</body>
-</html>`;
-    return new Response(html, {
-      headers: { "content-type": "text/html; charset=utf-8", ...Object.fromEntries(corsHeaders(request)) },
-    });
+    // Everything else (dashboard UI + Next /api/*) → full SoloPulse origin
+    return proxyUi(request, uiOrigin, url);
   },
 };
+
+async function proxyUi(request, origin, url) {
+  const target = new URL(url.pathname + url.search, origin);
+  const headers = new Headers(request.headers);
+  headers.set("host", new URL(origin).host);
+  headers.delete("cf-connecting-ip");
+  headers.delete("cf-ray");
+  headers.delete("cf-visitor");
+  headers.delete("x-forwarded-proto");
+  headers.delete("x-real-ip");
+
+  const init = {
+    method: request.method,
+    headers,
+    redirect: "manual",
+  };
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    init.body = request.body;
+    // @ts-expect-error duplex for streaming body
+    init.duplex = "half";
+  }
+
+  let res;
+  try {
+    res = await fetch(target, init);
+  } catch (err) {
+    return json({ ok: false, error: "UI origin unreachable", detail: String(err) }, 502);
+  }
+
+  // Follow one hop of same-origin redirects from Vercel
+  if (res.status >= 300 && res.status < 400) {
+    const loc = res.headers.get("location");
+    if (loc) {
+      try {
+        const next = new URL(loc, origin);
+        if (next.origin === new URL(origin).origin) {
+          const hop = await fetch(next, { method: "GET", headers, redirect: "manual" });
+          return rewriteResponse(hop, url.origin, origin);
+        }
+      } catch {
+        /* fall through */
+      }
+    }
+  }
+
+  return rewriteResponse(res, url.origin, origin);
+}
+
+async function proxyTo(request, base, url) {
+  const target = new URL(url.pathname + url.search, base);
+  const headers = new Headers(request.headers);
+  headers.delete("host");
+  const init = {
+    method: request.method,
+    headers,
+    redirect: "manual",
+  };
+  if (request.method !== "GET" && request.method !== "HEAD") {
+    init.body = request.body;
+    // @ts-expect-error duplex
+    init.duplex = "half";
+  }
+  try {
+    const res = await fetch(target, init);
+    const out = new Response(res.body, res);
+    corsHeaders(request).forEach((v, k) => out.headers.set(k, v));
+    return out;
+  } catch (err) {
+    return json({ ok: false, error: String(err) }, 502);
+  }
+}
+
+function rewriteResponse(res, publicOrigin, uiOrigin) {
+  const headers = new Headers(res.headers);
+  // Strip framing / host-bound headers that break edge proxy
+  headers.delete("content-encoding");
+  headers.delete("content-length");
+  headers.delete("transfer-encoding");
+  headers.delete("x-frame-options");
+  headers.delete("content-security-policy");
+  headers.delete("content-security-policy-report-only");
+
+  const loc = headers.get("location");
+  if (loc) {
+    try {
+      const u = new URL(loc, uiOrigin);
+      if (u.origin === new URL(uiOrigin).origin) {
+        headers.set("location", publicOrigin + u.pathname + u.search + u.hash);
+      }
+    } catch {
+      /* keep */
+    }
+  }
+
+  const type = (headers.get("content-type") || "").toLowerCase();
+  if (type.includes("text/html")) {
+    // Pass HTML through as stream-safe buffer and fix absolute origin links if any
+    return res.arrayBuffer().then((buf) => {
+      let html = new TextDecoder().decode(buf);
+      html = html.split(uiOrigin).join(publicOrigin);
+      headers.set("content-type", "text/html; charset=utf-8");
+      return new Response(html, { status: res.status, statusText: res.statusText, headers });
+    });
+  }
+
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+}
 
 function corsHeaders(request) {
   const origin = request.headers.get("Origin") || "*";
