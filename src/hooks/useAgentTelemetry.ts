@@ -24,9 +24,11 @@ function wsUrl(clientId: string): string {
     typeof process !== "undefined" &&
     process.env.NEXT_PUBLIC_FORCE_RAILWAY_WS === "1";
   const direct = envWs || "wss://solopulse-production.up.railway.app/ws";
+  // Always use Railway live WS when UI is served from CF edge (mobile primary URL)
   if (
     forceRailway ||
     host.endsWith("workers.dev") ||
+    host === "solopulse.paekfeel.workers.dev" ||
     host.includes("cloudflare")
   ) {
     return `${direct}?role=browser&clientId=${id}`;

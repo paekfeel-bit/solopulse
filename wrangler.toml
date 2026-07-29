@@ -9,3 +9,5 @@ preview_urls = false
 APP_NAME = "SoloPulse"
 API_BASE = "https://solopulse-api.paekfeel.workers.dev"
 UI_ORIGIN = "https://solopulse-production.up.railway.app"
+# Public mobile web-app entry (this worker)
+PUBLIC_URL = "https://solopulse.paekfeel.workers.dev"
