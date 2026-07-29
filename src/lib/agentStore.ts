@@ -9,7 +9,10 @@ import { toClientId } from "./clientId";
 const DEFAULT_SNAPSHOT =
   "https://jsonblob.com/api/jsonBlob/019fa850-df81-7bea-af1b-2c18bc6361a8";
 
-const FRESH_MS = 120_000;
+/** Live board stream freshness (online=true). */
+const FRESH_MS = 180_000;
+/** Keep last board snapshot (shares/bestDiff) for UI after PC sleep. */
+const KEEP_LAST_MS = 48 * 60 * 60 * 1000;
 
 function snapshotUrl(): string {
   return (
@@ -113,13 +116,18 @@ function buildSnapshot(slot: Slot): AgentSnapshot {
   const agentOnline = Boolean(hb && now - hb.ts < FRESH_MS) || deviceFresh;
   const ghs = Number(t?.hashRateGhs) || 0;
   const live = deviceFresh && ghs > 0;
+  const keepLast = Boolean(t && last && now - last < KEEP_LAST_MS);
+  // Always expose last telemetry (shares/bestDiff) when still within keep window,
+  // even if live stream is down (PC sleep / bridge restart).
   return {
     online: live,
     agentOnline: agentOnline || live,
-    agentStatus:
-      hb?.status ||
-      (live ? "STREAMING" : agentOnline ? "CONNECTED" : "AGENT_OFFLINE"),
-    telemetry: t,
+    agentStatus: live
+      ? "STREAMING"
+      : keepLast
+        ? "LAST_KNOWN"
+        : hb?.status || (agentOnline ? "CONNECTED" : "AGENT_OFFLINE"),
+    telemetry: keepLast ? t : live ? t : null,
     heartbeat: hb,
     updatedAt: last || 0,
     staleMs: Number.isFinite(staleMs) ? staleMs : 999_999_999,
