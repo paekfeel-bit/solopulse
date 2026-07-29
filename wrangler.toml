@@ -7,6 +7,10 @@ account_id = "60fff325c136cbad7a3b5a8ba3434df6"
 workers_dev = true
 preview_urls = false
 
+# CF Workers Builds: `npx wrangler deploy` runs this first (Linux), then deploys.
+[build]
+command = "npx opennextjs-cloudflare build"
+
 [assets]
 directory = ".open-next/assets"
 binding = "ASSETS"
