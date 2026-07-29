@@ -33,9 +33,10 @@ const KEY =
 const CLIENT_ID = process.env.CLIENT_ID || process.env.PAYOUT_ADDRESS || "default";
 const POLL_MS = Number(process.env.POLL_MS || 3000);
 const CLOUD_HTTP = (
+  process.env.SOLOPULSE_API_URL ||
   process.env.SOLOPULSE_CLOUD_URL ||
   process.env.CLOUD_URL ||
-  RAILWAY_WS.replace(/^wss:/, "https:").replace(/^ws:/, "http:").replace(/\/ws\/?$/, "")
+  "https://solopulse-api.paekfeel.workers.dev"
 ).replace(/\/$/, "");
 
 let minerIp = MINER_IP;

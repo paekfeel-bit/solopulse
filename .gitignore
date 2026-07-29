@@ -57,3 +57,7 @@ android/captures/
 *.jks
 *.keystore
 
+
+.wrangler/
+.open-next/
+
