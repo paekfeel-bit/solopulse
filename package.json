@@ -1,14 +1,15 @@
 {
   "name": "solopulse",
-  "version": "2.0.8",
+  "version": "2.0.9",
   "private": true,
   "engines": {
     "node": ">=20"
   },
   "scripts": {
     "dev": "next dev",
-    "build": "node -e \"console.log('solopulse cf worker build ok')\"",
+    "build": "next build",
     "build:next": "next build",
+    "build:cf": "node -e \"console.log('solopulse cf worker build ok')\"",
     "start": "node server.mjs",
     "start:next": "next start",
     "lint": "next lint",

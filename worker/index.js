@@ -3,7 +3,7 @@
  * Full Next.js UI origin (Vercel). Realtime/API on solopulse-api.
  */
 const API = "https://solopulse-api.paekfeel.workers.dev";
-const UI_ORIGIN = "https://solopulse-black.vercel.app";
+const UI_ORIGIN = "https://solopulse-production.up.railway.app";
 
 export default {
   async fetch(request, env) {
