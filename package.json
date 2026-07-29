@@ -34,6 +34,8 @@
     "@capacitor/android": "^8.4.2",
     "@capacitor/cli": "^8.4.2",
     "@capacitor/core": "^8.4.2",
+    "@emnapi/core": "^1.11.3",
+    "@emnapi/runtime": "^1.11.3",
     "@railway/cli": "^5.30.1",
     "@types/node": "^20",
     "@types/qrcode": "^1.5.6",
