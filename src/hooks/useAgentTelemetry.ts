@@ -5,7 +5,8 @@ import type { AgentSnapshot, MinerTelemetry } from "@/lib/telemetry";
 
 /** Fast poll — board hashrate must feel real-time */
 const POLL_MS = 1_500;
-const FRESH_MS = 90_000;
+/** Accept board samples for 5 min (home agent reconnect blips) */
+const FRESH_MS = 300_000;
 
 /** Live board stream WebSocket — Cloudflare SoloRoom DO (no Railway). */
 function wsUrl(clientId: string): string {
@@ -114,22 +115,32 @@ export function useAgentTelemetry(enabled = true, clientId = "default") {
     try {
       const ids = cid === "default" ? ["default"] : [cid, "default"];
       let best: AgentSnapshot | null = null;
-      // Cloudflare API worker holds SoloRoom snapshots (not Railway)
-      const host =
-        typeof window !== "undefined" ? window.location.hostname : "";
+      // Always prefer Cloudflare SoloRoom (permanent cloud path)
       const apiOrigin =
-        host.endsWith("workers.dev") || host.includes("cloudflare")
-          ? "https://solopulse-api.paekfeel.workers.dev"
-          : "";
+        (typeof process !== "undefined" &&
+          process.env.NEXT_PUBLIC_AGENT_API?.replace(/\/$/, "")) ||
+        "https://solopulse-api.paekfeel.workers.dev";
       for (const id of ids) {
         const q = new URLSearchParams({
           clientId: id,
           _: String(Date.now()),
         });
-        const res = await fetch(`${apiOrigin}/api/agent/telemetry?${q}`, {
-          cache: "no-store",
-        });
-        if (!res.ok) continue;
+        let res: Response | null = null;
+        try {
+          res = await fetch(`${apiOrigin}/api/agent/telemetry?${q}`, {
+            cache: "no-store",
+          });
+        } catch {
+          /* try same-origin next */
+        }
+        if (!res?.ok) {
+          try {
+            res = await fetch(`/api/agent/telemetry?${q}`, { cache: "no-store" });
+          } catch {
+            continue;
+          }
+        }
+        if (!res?.ok) continue;
         const j = (await res.json()) as AgentSnapshot;
         const ghs = Number(j.telemetry?.hashRateGhs) || 0;
         const at = Number(j.telemetry?.collectedAt) || Number(j.updatedAt) || 0;

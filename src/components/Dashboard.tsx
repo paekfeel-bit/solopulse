@@ -108,19 +108,21 @@ export function Dashboard({ address, onLogout }: Props) {
   }, [dash.user]);
 
   /**
-   * BOARD GROUND TRUTH (required for Source Engine contact):
-   * 1) Live bridge/agent hashrate
-   * 2) Device proxy path
-   * Pool is display-only fallback — NEVER feed pool H into source engine.
+   * MINING GROUND TRUTH (Source Engine + Intelligence):
+   * Your solo mining is real work on the Bitcoin network.
+   * 1) Board/bridge (LAN agent) — temp + exact AxeOS stats
+   * 2) Pool API for your wallet — ALWAYS works from any internet
+   *    (same physical mining; pool reports accepted work)
+   * Never idle the source engine when pool is live.
    */
   const deviceHsLive = (() => {
     if (agent.hasLiveHashrate && agent.hashRateHs > 0) return agent.hashRateHs;
     if (agent.hasLiveHashrate && agent.hashRateGhs > 0)
       return agent.hashRateGhs * 1e9;
-    // Soft: fresh agent sample even if flag flapped
+    // Accept LAST_KNOWN board up to 10 min (home agent blip)
     if (
       agent.telemetry &&
-      agent.staleMs < 90_000 &&
+      agent.staleMs < 600_000 &&
       (agent.hashRateHs > 0 || agent.hashRateGhs > 0)
     ) {
       return agent.hashRateHs > 0
@@ -136,20 +138,28 @@ export function Dashboard({ address, onLogout }: Props) {
   })();
 
   const boardLive = deviceHsLive > 0;
+  const poolHsLive =
+    poolHr.displayHs || poolHr.instantHs || poolHr.stableHs || 0;
   const picked = pickDisplayHashrate({
     deviceOnline: boardLive,
     deviceHs: deviceHsLive,
-    poolStableHs: poolHr.displayHs || poolHr.instantHs || poolHr.stableHs,
+    poolStableHs: poolHsLive,
   });
   /** UI big number: board first, else pool */
   const shownHs = picked.hs;
-  /** Source engine / contact MUST use board only */
-  const engineHs = boardLive ? deviceHsLive : 0;
+  /**
+   * Source engine MUST run whenever we have real mining H.
+   * Prefer board; pool is valid ground truth for solo (same wallet work).
+   */
+  const engineHs = boardLive ? deviceHsLive : poolHsLive > 0 ? poolHsLive : 0;
+  const miningLive = engineHs > 0;
   const hrSource = boardLive
     ? "device"
-    : picked.source === "none"
+    : poolHsLive > 0
       ? "pool"
-      : picked.source;
+      : picked.source === "none"
+        ? "pool"
+        : picked.source;
   const deviceAgeMs = agent.collectedAt
     ? Math.max(0, nowTick - agent.collectedAt)
     : deviceHr.device?.fetchedAt != null
@@ -184,6 +194,7 @@ export function Dashboard({ address, onLogout }: Props) {
   const engineEnhanced = useMemo(() => {
     if (!(difficulty > 0)) return null;
     const hs = engineHs > 0 ? engineHs : shownHs;
+    if (!(hs > 0) || !(difficulty > 0)) return null;
     const best = bestForLadder || bestShare;
     if (best > 0) pushBestShareSample(best);
     const trend = loadBestShareTrend();
@@ -210,11 +221,10 @@ export function Dashboard({ address, onLogout }: Props) {
   ]);
 
   const liveTick = useLiveOdds({
-    // Prefer board H for odds when live; pool only as soft fallback
     hashrateBase: engineHs > 0 ? engineHs : shownHs,
     difficulty,
     bestShare: bestForLadder || bestShare,
-    active: (engineHs > 0 || shownHs > 0) && difficulty > 0,
+    active: miningLive && difficulty > 0,
   });
 
   // Reset chart when address changes
@@ -555,23 +565,33 @@ export function Dashboard({ address, onLogout }: Props) {
               className="engine-scan pointer-events-none absolute inset-x-0 z-10 h-14 bg-gradient-to-b from-transparent via-amber-500/12 to-transparent"
               aria-hidden
             />
-        {/* Board live strip — critical path */}
+        {/* Mining contact strip — core product path */}
         <div
           className={`relative z-[1] rounded-xl border px-3 py-2 text-[11px] font-mono ${
             boardLive
               ? "border-emerald-600/50 bg-emerald-950/40 text-emerald-300"
-              : "border-red-800/50 bg-red-950/30 text-red-300"
+              : miningLive
+                ? "border-amber-600/50 bg-amber-950/30 text-amber-200"
+                : "border-red-800/50 bg-red-950/30 text-red-300"
           }`}
         >
           {boardLive
-            ? `BOARD LIVE · ${(deviceHsLive / 1e9).toFixed(1)} GH/s · ${
-                agent.hostIp || deviceHr.device?.ip || "—"
-              } · ${agent.tempC ?? deviceHr.device?.temp ?? "—"}°C · age ${
-                deviceAgeMs != null ? `${(deviceAgeMs / 1000).toFixed(0)}s` : "0s"
-              } · → Source Engine`
-            : locale === "ko"
-              ? "BOARD OFFLINE · 소스엔진 컨택 불가 · 아래 IP 연결/자동검색 또는 start-bridge.bat"
-              : "BOARD OFFLINE · source engine idle · connect IP / auto-scan / start-bridge.bat"}
+            ? locale === "ko"
+              ? `보드 컨택 LIVE · ${(deviceHsLive / 1e9).toFixed(1)} GH/s · ${
+                  agent.hostIp || deviceHr.device?.ip || "—"
+                } · ${agent.tempC ?? deviceHr.device?.temp ?? "—"}°C · ${
+                  deviceAgeMs != null ? `${(deviceAgeMs / 1000).toFixed(0)}s` : "0s"
+                } · 소스엔진 ON`
+              : `BOARD LIVE · ${(deviceHsLive / 1e9).toFixed(1)} GH/s · ${
+                  agent.hostIp || deviceHr.device?.ip || "—"
+                } · ${agent.tempC ?? deviceHr.device?.temp ?? "—"}°C · Source Engine ON`
+            : miningLive
+              ? locale === "ko"
+                ? `풀 실시간 컨택 · ${(poolHsLive / 1e12).toFixed(2)} TH/s · 지갑/풀 기준 소스엔진·확률 ON · 보드온도는 집 브리지 연결 시`
+                : `POOL LIVE · ${(poolHsLive / 1e12).toFixed(2)} TH/s · Source Engine ON (wallet/pool) · board temp needs home bridge`
+              : locale === "ko"
+                ? "컨택 없음 · 지갑주소+풀을 확인하고, 집 PC에서 install-always-on.bat (브리지) 실행"
+                : "NO CONTACT · check wallet+pool, run install-always-on.bat on home PC"}
         </div>
 
         {/* Analog instrument cluster — retro hi-fi panel (light + dark) */}
@@ -1078,22 +1098,31 @@ export function Dashboard({ address, onLogout }: Props) {
                 hashrateHs={engineHs > 0 ? engineHs : 0}
                 networkDiff={difficulty}
                 bestShare={bestForLadder || bestShare}
-                live={boardLive && !deviceIsSticky}
+                live={miningLive && !deviceIsSticky}
                 pDay={liveTick?.display.pDay || 0}
-                confidence={boardLive ? 0.92 : 0.15}
+                confidence={boardLive ? 0.95 : miningLive ? 0.85 : 0.15}
                 agentStatus={
                   boardLive
-                    ? "STREAMING"
-                    : agent.agentStatus || deviceHr.status || "NO_BOARD"
+                    ? "BOARD_STREAMING"
+                    : miningLive
+                      ? "POOL_STREAMING"
+                      : agent.agentStatus || "NO_CONTACT"
                 }
                 enhanced={engineEnhanced}
               />
             )}
-            {!boardLive && (
+            {!miningLive && (
               <div className="text-[11px] leading-relaxed text-amber-100 bg-amber-950/50 border border-amber-700/50 rounded-xl px-3 py-2.5">
                 {locale === "ko"
-                  ? "⚠ 보드 실시간 해시 없음 — 소스 엔진 컨택 불가. 홈 탭에서 IP 연결/자동검색, 또는 집 PC에서 start-bridge.bat 실행."
-                  : "⚠ No live board hashrate — source engine cannot contact. Connect IP / Auto scan on Home, or run start-bridge.bat."}
+                  ? "⚠ 채굴 신호 없음 — 지갑+풀을 확인하세요. 보드 온도까지 보려면 집 PC에서 install-always-on.bat 실행."
+                  : "⚠ No mining signal — check wallet+pool. For board temp run install-always-on.bat on home PC."}
+              </div>
+            )}
+            {miningLive && !boardLive && (
+              <div className="text-[11px] leading-relaxed text-emerald-100 bg-emerald-950/40 border border-emerald-700/40 rounded-xl px-3 py-2.5">
+                {locale === "ko"
+                  ? "✓ 풀 기준 소스엔진 가동 중 (집 밖에서도 OK). 보드 온도·LAN 상세는 집 브리지 연결 시 추가됩니다."
+                  : "✓ Source Engine running on pool data (works away from home). Board temp when home bridge is online."}
               </div>
             )}
             {difficulty > 0 && (
@@ -1116,8 +1145,10 @@ export function Dashboard({ address, onLogout }: Props) {
                 foundBlocks={
                   agent.foundBlocks || deviceHr.device?.foundBlocks || 0
                 }
-                deviceOnline={boardLive}
-                hasDevice={boardLive || agent.agentOnline || deviceHr.hasDevice}
+                deviceOnline={boardLive || miningLive}
+                hasDevice={
+                  boardLive || miningLive || agent.agentOnline || deviceHr.hasDevice
+                }
               />
             )}
           </>

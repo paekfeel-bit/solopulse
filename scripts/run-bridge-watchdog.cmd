@@ -6,6 +6,7 @@ title SoloPulse Bridge Watchdog
 set MINER_SUBNET=172.30.1
 set RAILWAY_WS=wss://solopulse-api.paekfeel.workers.dev/ws
 set SOLOPULSE_WS=wss://solopulse-api.paekfeel.workers.dev/ws
+set SOLOPULSE_API_URL=https://solopulse-api.paekfeel.workers.dev
 set SOLOPULSE_AGENT_KEY=solopulse-local-dev-key
 set CLIENT_ID=default
 set POLL_MS=2500
