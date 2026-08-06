@@ -15,10 +15,10 @@ import {
 } from "@/lib/notify";
 import { computeSourceContact } from "@/lib/sourceContact";
 
-/** CKPool / miner stats ??live path */
-const MINER_POLL_MS = 2_000;
-/** Network difficulty / price ??changes slowly */
-const NETWORK_POLL_MS = 12_000;
+/** CKPool / miner stats — poll every 1s for live feel */
+const MINER_POLL_MS = 1_000;
+/** Network difficulty / price — changes slowly */
+const NETWORK_POLL_MS = 15_000;
 /** Coinbase / block payout check */
 const ADDRESS_POLL_MS = 25_000;
 

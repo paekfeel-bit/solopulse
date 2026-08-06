@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useMinerDashboard } from "@/hooks/useMinerDashboard";
 import {
+  formatHashrate,
   formatHashrateGhs,
   formatDifficulty,
   formatTimeAgo,
@@ -23,6 +24,7 @@ import {
 } from "@/lib/history";
 import { POOL_OPTIONS } from "@/lib/pools";
 import { useLiveOdds } from "@/hooks/useLiveOdds";
+import { useLiveHashrate } from "@/hooks/useLiveHashrate";
 import { useDeviceHashrate } from "@/hooks/useDeviceHashrate";
 import { useAgentTelemetry } from "@/hooks/useAgentTelemetry";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
@@ -135,11 +137,14 @@ export function Dashboard({ address, onLogout }: Props) {
     deviceHs: deviceHsLive,
     poolStableHs: poolHsLive,
   });
-  /** Board if available, else pool — both feed source engine */
-  const shownHs = picked.hs;
-  const engineHs = boardLive ? deviceHsLive : poolHsLive > 0 ? poolHsLive : 0;
-  const miningLive = engineHs > 0;
+  /** Board if available, else pool base — then 1 Hz live pulse for UI */
+  const baseHs = picked.hs > 0 ? picked.hs : poolHsLive > 0 ? poolHsLive : 0;
+  const miningLive = baseHs > 0;
   const hrSource = boardLive ? ("device" as const) : ("pool" as const);
+  const { liveHs, tick: liveTickN } = useLiveHashrate(baseHs, miningLive);
+  /** Big number + gauges + engine use live 1s stream */
+  const shownHs = liveHs > 0 ? liveHs : baseHs;
+  const engineHs = shownHs;
 
   // Connection light = pool health (any internet)
   const heartbeatOk =
@@ -185,7 +190,7 @@ export function Dashboard({ address, onLogout }: Props) {
   ]);
 
   const liveTick = useLiveOdds({
-    hashrateBase: engineHs > 0 ? engineHs : shownHs,
+    hashrateBase: engineHs > 0 ? engineHs : baseHs,
     difficulty,
     bestShare: bestForLadder || bestShare,
     active: miningLive && difficulty > 0,
@@ -483,12 +488,12 @@ export function Dashboard({ address, onLogout }: Props) {
           <div className="min-w-0 text-[11px] font-mono leading-snug">
             {miningLive
               ? locale === "ko"
-                ? `채굴 LIVE · ${formatHashrateGhs(engineHs, 2)} · ${
+                ? `채굴 LIVE · ${formatHashrate(shownHs, 3)} · 1초 갱신 · ${
                     hrSource === "device" ? "보드" : `풀 ${poolWindowLabel}`
-                  } · 소스엔진 ON · 어디서나`
-                : `MINING LIVE · ${formatHashrateGhs(engineHs, 2)} · ${
+                  } · 소스엔진 ON`
+                : `MINING LIVE · ${formatHashrate(shownHs, 3)} · 1s tick · ${
                     hrSource === "device" ? "board" : `pool ${poolWindowLabel}`
-                  } · engine ON · any network`
+                  } · engine ON`
               : locale === "ko"
                 ? "채굴 신호 없음 · 지갑+풀 확인 (모바일 데이터에서도 동일)"
                 : "No mining signal · check wallet+pool (same on mobile data)"}
@@ -552,13 +557,20 @@ export function Dashboard({ address, onLogout }: Props) {
               decimals={0}
             />
           </div>
-          <div className="sp-retro-hash-readout mt-2 text-center font-mono text-2xl sm:text-3xl tabular-nums tracking-tight font-bold">
-            {shownHs > 0 ? formatHashrateGhs(shownHs, 2) : "—"}
+          <div
+            key={liveTickN}
+            className="sp-retro-hash-readout mt-2 text-center font-mono text-2xl sm:text-3xl tabular-nums tracking-tight font-bold transition-opacity duration-300"
+          >
+            {shownHs > 0 ? formatHashrate(shownHs, 3) : "—"}
             <span className="text-sm text-amber-700 dark:text-amber-500 ml-2 font-semibold">
-              {hrSource === "device" ? "BOARD" : `POOL ${poolWindowLabel}`}
+              LIVE · 1s
             </span>
           </div>
           <div className="sp-retro-meta text-center text-[10px] font-mono mt-1 break-all space-y-0.5">
+            <div className="text-emerald-600/90 dark:text-emerald-400/90">
+              {locale === "ko" ? "1초 실시간" : "1s live"} · tick #{liveTickN} ·{" "}
+              {hrSource === "device" ? "BOARD" : `POOL ${poolWindowLabel}`}
+            </div>
             <div>
               pool 1m {u.hashrate1m || "—"} · 5m {u.hashrate5m || "—"} · 1h{" "}
               {u.hashrate1hr || "—"}
@@ -567,6 +579,11 @@ export function Dashboard({ address, onLogout }: Props) {
               <div className="text-emerald-600 dark:text-emerald-400">
                 board {(deviceHsLive / 1e12).toFixed(2)} TH/s ·{" "}
                 {agent.hostIp || deviceHr.device?.ip || "—"}
+              </div>
+            )}
+            {dash.lastUpdated != null && (
+              <div className="text-[var(--muted)]">
+                pool Δ{Math.max(0, Math.floor((nowTick - dash.lastUpdated) / 1000))}s
               </div>
             )}
           </div>
