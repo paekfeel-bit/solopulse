@@ -86,6 +86,9 @@ export function useDeviceHashrate(enabled: boolean, clientId = "default") {
   const ipRef = useRef(ip);
   const didBoot = useRef(false);
   const clientIdRef = useRef(clientId);
+  /** Prevent popup spam: only open connector on explicit user action */
+  const lastConnectorOpenAt = useRef(0);
+  const connectorWinRef = useRef<Window | null>(null);
 
   useEffect(() => {
     clientIdRef.current = clientId;
@@ -153,32 +156,64 @@ export function useDeviceHashrate(enabled: boolean, clientId = "default") {
     return info;
   }, []);
 
-  const launchConnector = useCallback((rawIp: string) => {
-    const host = normalizeDeviceHost(rawIp) || rawIp.trim();
-    if (!host || host === "auto") return false;
-    setConnectorIp(host);
-    // Open miner home (same as typing IP in address bar) + connector reader
-    openMinerHome(host);
-    const w = openDeviceConnector({
-      ip: host,
-      clientId: clientIdRef.current || "default",
-    });
-    if (!w) {
-      setNeedConnectorClick(true);
+  /**
+   * Open the SoloPulse connector popup ONLY.
+   * Never auto-navigate to device IP homepage (that was a redirect spam bug).
+   * Miner home opens only when user taps 「기기 홈 열기」.
+   */
+  const launchConnector = useCallback(
+    (rawIp: string, opts?: { force?: boolean }) => {
+      const host = normalizeDeviceHost(rawIp) || rawIp.trim();
+      if (!host || host === "auto") return false;
+      setConnectorIp(host);
+
+      const force = opts?.force === true;
+      const now = Date.now();
+      // Cooldown unless user explicitly force-opens
+      if (!force && now - lastConnectorOpenAt.current < 45_000) {
+        setNeedConnectorClick(true);
+        setNeedBookmarklet(true);
+        return false;
+      }
+      // Reuse existing connector window if still open
+      try {
+        const existing = connectorWinRef.current;
+        if (existing && !existing.closed) {
+          existing.focus();
+          lastConnectorOpenAt.current = now;
+          setNeedConnectorClick(false);
+          setStatus("connecting");
+          return true;
+        }
+      } catch {
+        /* */
+      }
+
+      // DO NOT call openMinerHome here — that navigated the user away every poll
+      const w = openDeviceConnector({
+        ip: host,
+        clientId: clientIdRef.current || "default",
+      });
+      connectorWinRef.current = w;
+      lastConnectorOpenAt.current = now;
+      if (!w) {
+        setNeedConnectorClick(true);
+        setNeedBookmarklet(true);
+        setError(
+          "팝업 차단됨 — 「연동 창 열기」를 누르세요 (기기 홈은 자동으로 열지 않음)"
+        );
+        return false;
+      }
+      setNeedConnectorClick(false);
       setNeedBookmarklet(true);
       setError(
-        "팝업 차단 또는 CORS — 「연동 창 열기」또는 기기 홈에서 북마크릿 실행"
+        "연동 창에서 보드 읽는 중… 창을 유지하세요. 필요하면 「기기 홈 열기」만 수동으로."
       );
-      return false;
-    }
-    setNeedConnectorClick(false);
-    setNeedBookmarklet(true);
-    setError(
-      "연동 중… 연동 창을 유지하세요. 실패 시 기기 홈 탭에서 북마크릿을 실행하세요."
-    );
-    setStatus("connecting");
-    return true;
-  }, []);
+      setStatus("connecting");
+      return true;
+    },
+    []
+  );
 
   const copyBookmarklet = useCallback(async () => {
     const js = buildMinerBookmarklet(clientIdRef.current || "default");
@@ -364,23 +399,18 @@ export function useDeviceHashrate(enabled: boolean, clientId = "default") {
           }
         }
 
-        // HTTPS site cannot fetch private HTTP IP (mixed content).
-        // Launch connector window = same idea as typing IP in the address bar.
+        // HTTPS mixed content: do NOT auto-open windows on background poll.
+        // Only set flags so UI shows 「연동 창 열기」button.
         if (!isAuto && isMixedContentBlockLikely(primary)) {
-          const opened = launchConnector(primary);
           lastErr =
             lastErr ||
-            "브라우저가 HTTPS→HTTP 기기 직접 읽기를 막음 → 연동 창으로 연결 시도 중";
-          if (opened) {
-            setStatus("connecting");
-            setError(lastErr);
-            // Wait for postMessage from connector — do not mark hard fail yet
-            return lastGood.current;
-          }
+            "HTTPS→HTTP 직접 읽기 불가 · 「연동 창 열기」를 한 번 누르세요 (자동 이동 없음)";
+          setNeedConnectorClick(true);
+          setNeedBookmarklet(true);
         } else if (isCloudHostedPage()) {
           lastErr =
             lastErr ||
-            "보드 미연결 · 같은 Wi‑Fi에서 LAN IP 입력 후 연결(연동 창) · 또는 공개 HTTPS 터널";
+            "보드 미연결 · 같은 Wi‑Fi에서 IP 입력 후 「연결」또는 「연동 창 열기」";
         }
 
         return applyFail(primary, lastErr || "기기 연결 실패");
@@ -388,7 +418,7 @@ export function useDeviceHashrate(enabled: boolean, clientId = "default") {
         busy.current = false;
       }
     },
-    [applyFail, applyOk, launchConnector]
+    [applyFail, applyOk]
   );
 
   const connect = useCallback(
@@ -411,18 +441,15 @@ export function useDeviceHashrate(enabled: boolean, clientId = "default") {
       busy.current = false;
       setIp(v);
 
-      // Fast path: on HTTPS + private LAN IP, open connector immediately
-      // (address-bar style access) while also racing normal paths.
-      if (v !== "auto" && isMixedContentBlockLikely(v)) {
-        launchConnector(v);
-      }
-
+      // Try silent paths first (proxy / direct) — no popups, no navigation
       const result = await fetchDevice(v, true);
-      if (result && (result.hashRateGhs > 0 || result.online)) return result;
+      if (result && (result.online || result.hashRateGhs > 0)) return result;
 
-      // Still offline after races — ensure connector is open for LAN
-      if (v !== "auto" && isMixedContentBlockLikely(v) && !lastGood.current) {
-        launchConnector(v);
+      // User clicked Connect: open connector popup once only (never miner home)
+      if (v !== "auto" && isMixedContentBlockLikely(v)) {
+        launchConnector(v, { force: true });
+      } else {
+        setNeedConnectorClick(true);
       }
       return result;
     },
@@ -437,7 +464,7 @@ export function useDeviceHashrate(enabled: boolean, clientId = "default") {
       setError("먼저 기기 IP를 입력하세요");
       return;
     }
-    const ok = launchConnector(host);
+    const ok = launchConnector(host, { force: true });
     if (!ok) {
       downloadDeviceConnector({
         ip: host,

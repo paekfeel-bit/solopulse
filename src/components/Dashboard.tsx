@@ -816,8 +816,8 @@ export function Dashboard({ address, onLogout }: Props) {
                 </div>
                 <p className="text-[10px] text-[var(--muted)] leading-relaxed">
                   {locale === "ko"
-                    ? "주소창에 IP 치면 기기 홈이 뜨는 것처럼, 연결 시 연동 창이 보드 API를 읽어 소스엔진에 바로 붙입니다. (같은 Wi‑Fi 필수 · 연동 창 유지)"
-                    : "Same as typing the IP in the address bar: Connect opens a link window that reads the board API and feeds the source engine. (Same Wi‑Fi · keep window open)"}
+                    ? "IP 입력 후 연결 → 필요 시 「연동 창 열기」만 사용. 기기 홈페이지로는 자동 이동하지 않습니다. (같은 Wi‑Fi)"
+                    : "Enter IP → Connect. Use “Open link window” only if needed. Never auto-navigates to the device homepage."}
                 </p>
                 <div className="flex flex-col sm:flex-row gap-1.5">
                   <input
