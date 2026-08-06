@@ -99,11 +99,23 @@ export function useDeviceHashrate(enabled: boolean, clientId = "default") {
   }, [ip]);
 
   useEffect(() => {
-    // Keep user choice: empty = pool-only (no board probe), auto = optional discovery
+    // empty = pool-only. Never keep legacy "auto" probing.
     let stored = getStoredDeviceIp();
-    if (stored === "undefined" || stored == null) stored = "";
+    if (
+      !stored ||
+      stored === "undefined" ||
+      stored.toLowerCase() === "auto" ||
+      stored.toLowerCase() === "bridge"
+    ) {
+      stored = "";
+      setStoredDeviceIp("");
+    }
     setIpState(stored);
     ipRef.current = stored;
+    if (!stored) {
+      setError(null);
+      setStatus("idle");
+    }
   }, []);
 
   const setIp = useCallback((next: string) => {

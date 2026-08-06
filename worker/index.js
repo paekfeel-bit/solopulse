@@ -115,8 +115,8 @@ async function forwardUi(request, origin, url, publicOrigin) {
           online: false,
           error:
             res.status === 502
-              ? "upstream 502 — board tunnel unavailable (pool monitor still works)"
-              : `API returned non-JSON (HTTP ${res.status})`,
+              ? "board offline"
+              : `API non-JSON HTTP ${res.status}`,
           status: res.status,
         },
         // 200 with JSON so browser clients can always parse

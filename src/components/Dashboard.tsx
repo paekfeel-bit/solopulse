@@ -79,6 +79,8 @@ export function Dashboard({ address, onLogout }: Props) {
     typeof window !== "undefined" ? getStoredDeviceIp() || "" : ""
   );
   const [boardBusy, setBoardBusy] = useState(false);
+  /** Only show board errors after user taps Apply (never pollute pool UI). */
+  const [boardApplyMsg, setBoardApplyMsg] = useState<string | null>(null);
   /** Adaptive hashrate gauge peak. */
   const [gaugePeakGhs, setGaugePeakGhs] = useState(0);
 
@@ -234,18 +236,49 @@ export function Dashboard({ address, onLogout }: Props) {
   async function handleBoardHostApply() {
     const raw = boardHostDraft.trim();
     setBoardBusy(true);
+    setBoardApplyMsg(null);
     try {
       if (!raw) {
         setStoredDeviceIp("");
         deviceHr.setIp("");
+        setBoardApplyMsg(
+          locale === "ko"
+            ? "보드 주소 비움 · 풀 모니터링만 사용"
+            : "Board cleared · pool monitor only"
+        );
         return;
       }
       const host = normalizeDeviceHost(raw) || raw;
+      // Private LAN from cloud HTTPS almost always fails — don't spam 502 English
+      const parsed = parseDeviceTarget(host);
+      if (parsed?.privateLan) {
+        setStoredDeviceIp(host);
+        setBoardHostDraft(host);
+        setBoardApplyMsg(
+          locale === "ko"
+            ? "사설 IP는 집 Wi‑Fi에서만 시도됩니다. 지금 풀 모니터링은 정상입니다."
+            : "Private IP only on home Wi‑Fi. Pool monitor is fine."
+        );
+        await deviceHr.connect(host);
+        return;
+      }
       setStoredDeviceIp(host);
       setBoardHostDraft(host);
-      // Silent check only — no popups / navigation
-      await deviceHr.connect(host);
+      const info = await deviceHr.connect(host);
       await agent.refresh();
+      if (info && (info.online || (info.hashRateGhs || 0) > 0)) {
+        setBoardApplyMsg(
+          locale === "ko"
+            ? `보드 연결됨 · ${(info.hashRateGhs || 0).toFixed(1)} GH/s`
+            : `Board linked · ${(info.hashRateGhs || 0).toFixed(1)} GH/s`
+        );
+      } else {
+        setBoardApplyMsg(
+          locale === "ko"
+            ? "보드 주소 응답 없음 · 풀 모니터링은 계속 동작 중"
+            : "Board unreachable · pool monitor still running"
+        );
+      }
     } finally {
       setBoardBusy(false);
     }
@@ -573,47 +606,52 @@ export function Dashboard({ address, onLogout }: Props) {
                 </span>
               </div>
 
-              {/* Optional board host — tunnel works off home Wi‑Fi */}
-              <div className="rounded-lg border border-[var(--border)] bg-[var(--bg)] p-2 space-y-1.5">
-                <div className="text-[9px] uppercase tracking-wider text-[var(--muted)] font-semibold">
+              {/* Optional board — collapsed by default; pool is primary */}
+              <details className="rounded-lg border border-[var(--border)] bg-[var(--bg)] p-2">
+                <summary className="text-[10px] text-[var(--muted)] cursor-pointer select-none">
                   {locale === "ko"
-                    ? "보드 주소 (선택)"
-                    : "Board host (optional)"}
-                </div>
-                <div className="flex flex-col sm:flex-row gap-1.5">
-                  <input
-                    type="text"
-                    value={boardHostDraft}
-                    onChange={(e) => setBoardHostDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        void handleBoardHostApply();
-                      }
-                    }}
-                    placeholder="https://xxxx.trycloudflare.com 또는 172.x.x.x"
-                    spellCheck={false}
-                    autoComplete="off"
-                    className="flex-1 min-w-0 rounded-lg border border-[var(--border)] bg-[var(--card)] px-2.5 py-2 text-xs font-mono text-[var(--fg)]"
-                  />
-                  <button
-                    type="button"
-                    disabled={boardBusy}
-                    onClick={() => void handleBoardHostApply()}
-                    className="text-[11px] px-3 py-2 rounded-lg font-semibold bg-amber-500 text-stone-950 disabled:opacity-50 shrink-0"
-                  >
-                    {boardBusy ? "…" : locale === "ko" ? "적용" : "Apply"}
-                  </button>
-                </div>
-                <p className="text-[9px] text-[var(--muted)] leading-relaxed">
-                  {boardHostHint}
-                </p>
-                {deviceHr.error && !boardLive && (
-                  <p className="text-[9px] text-amber-600 dark:text-amber-400 font-mono break-words">
-                    {deviceHr.error}
+                    ? "고급 · 보드 주소 (선택, 보통 비움)"
+                    : "Advanced · board host (optional, usually empty)"}
+                </summary>
+                <div className="mt-2 space-y-1.5">
+                  <div className="flex flex-col sm:flex-row gap-1.5">
+                    <input
+                      type="text"
+                      value={boardHostDraft}
+                      onChange={(e) => {
+                        setBoardHostDraft(e.target.value);
+                        setBoardApplyMsg(null);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault();
+                          void handleBoardHostApply();
+                        }
+                      }}
+                      placeholder="https://xxxx.trycloudflare.com"
+                      spellCheck={false}
+                      autoComplete="off"
+                      className="flex-1 min-w-0 rounded-lg border border-[var(--border)] bg-[var(--card)] px-2.5 py-2 text-xs font-mono text-[var(--fg)]"
+                    />
+                    <button
+                      type="button"
+                      disabled={boardBusy}
+                      onClick={() => void handleBoardHostApply()}
+                      className="text-[11px] px-3 py-2 rounded-lg font-semibold border border-[var(--border)] text-[var(--fg)] disabled:opacity-50 shrink-0"
+                    >
+                      {boardBusy ? "…" : locale === "ko" ? "적용" : "Apply"}
+                    </button>
+                  </div>
+                  <p className="text-[9px] text-[var(--muted)] leading-relaxed">
+                    {boardHostHint}
                   </p>
-                )}
-              </div>
+                  {boardApplyMsg && (
+                    <p className="text-[9px] text-[var(--muted)] leading-relaxed">
+                      {boardApplyMsg}
+                    </p>
+                  )}
+                </div>
+              </details>
 
               <div className="grid grid-cols-2 gap-2 pt-1">
                 <div className="rounded-lg bg-[var(--bg)] border border-[var(--border)] px-2.5 py-2 min-w-0">
