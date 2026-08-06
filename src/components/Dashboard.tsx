@@ -9,33 +9,24 @@ import {
   formatUnix,
   toGHs,
 } from "@/lib/mining";
-import { selectStableHashrate, pickDisplayHashrate } from "@/lib/hashrate";
+import { selectStableHashrate } from "@/lib/hashrate";
 import {
   clearStoredAddress,
   pushSample,
   loadHistory,
-  getStoredDeviceIp,
   getStoredPool,
   setStoredPool,
   rememberLastAddress,
 } from "@/lib/history";
 import { POOL_OPTIONS } from "@/lib/pools";
 import { useLiveOdds } from "@/hooks/useLiveOdds";
-import { useDeviceHashrate } from "@/hooks/useDeviceHashrate";
-import { useAgentTelemetry } from "@/hooks/useAgentTelemetry";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { useI18n, localeButtonLabel, localeExitLabel } from "@/lib/i18n";
 import { useTheme } from "@/lib/theme";
 import {
-  notify,
   notifyBlockFound,
-  notifyTempHot,
-  shouldNotifyTempHot,
-  TEMP_HOT_C,
-  TEMP_CLEAR_C,
   wasBlockCelebrated,
   markBlockCelebrated,
-  notificationsEnabled,
 } from "@/lib/notify";
 import { StatCard } from "./StatCard";
 import { LiveOddsPanel } from "./LiveOddsPanel";
@@ -43,7 +34,7 @@ import { SoloCasePanel } from "./SoloCasePanel";
 import { SourceEngineHub } from "./SourceEngineHub";
 import { SourceEngineLive } from "./SourceEngineLive";
 import { AnalogGauge } from "./AnalogGauge";
-import { hashrateGaugeScale, powerGaugeScale } from "@/lib/gaugeScale";
+import { hashrateGaugeScale } from "@/lib/gaugeScale";
 import { VersionBadge } from "./VersionBadge";
 import {
   buildEnhancedBundle,
@@ -59,10 +50,8 @@ import { MempoolBlocks } from "./MempoolBlocks";
 import { Celebration } from "./Celebration";
 import { ConnectionLight } from "./ConnectionLight";
 import { NotifyBell } from "./NotifyBell";
-import { BtcDisclaimer } from "./BtcDisclaimer";
 import { LightningTip } from "./LightningTip";
 import { BottomNav, type DashTab } from "./BottomNav";
-import { BridgePanel } from "./BridgePanel";
 
 interface Props {
   address: string;
@@ -73,20 +62,14 @@ export function Dashboard({ address, onLogout }: Props) {
   const { t, cycleLocale, locale } = useI18n();
   const { theme, toggle } = useTheme();
   const dash = useMinerDashboard(address);
-  /** Device + agent paths: LAN IP → connector window → source engine. */
-  const deviceHr = useDeviceHashrate(true, address);
-  const agent = useAgentTelemetry(true, address);
+  /** Pool-only product: no board IP / temp / bridge UI. */
   const [tab, setTab] = useState<DashTab>("home");
   const [celebrateOpen, setCelebrateOpen] = useState(true);
   const [localHistory, setLocalHistory] = useState(() => loadHistory(address));
   const [nowTick, setNowTick] = useState(() => Date.now());
-  const [deviceIpDraft, setDeviceIpDraft] = useState(() =>
-    typeof window !== "undefined" ? getStoredDeviceIp() || "auto" : "auto"
-  );
-  const [deviceBusy, setDeviceBusy] = useState(false);
   const prevFound = useRef<number | null>(null);
-  /** Per-device peak for adaptive gauge full-scale (resets when board IP changes). */
-  const [gaugePeak, setGaugePeak] = useState({ ghs: 0, powerW: 0, key: "" });
+  /** Adaptive hashrate gauge peak (pool). */
+  const [gaugePeakGhs, setGaugePeakGhs] = useState(0);
 
   // 1s UI clock — age labels + force re-read of sticky age
   useEffect(() => {
@@ -108,70 +91,19 @@ export function Dashboard({ address, onLogout }: Props) {
   }, [dash.user]);
 
   /**
-   * MINING GROUND TRUTH (Source Engine + Intelligence):
-   * Your solo mining is real work on the Bitcoin network.
-   * 1) Board/bridge (LAN agent) — temp + exact AxeOS stats
-   * 2) Pool API for your wallet — ALWAYS works from any internet
-   *    (same physical mining; pool reports accepted work)
-   * Never idle the source engine when pool is live.
+   * POOL-ONLY ground truth:
+   * Wallet + pool API → hashrate, shares, source engine, odds.
+   * No board IP / temperature / bridge required.
    */
-  const deviceHsLive = (() => {
-    if (agent.hasLiveHashrate && agent.hashRateHs > 0) return agent.hashRateHs;
-    if (agent.hasLiveHashrate && agent.hashRateGhs > 0)
-      return agent.hashRateGhs * 1e9;
-    // Accept LAST_KNOWN board up to 10 min (home agent blip)
-    if (
-      agent.telemetry &&
-      agent.staleMs < 600_000 &&
-      (agent.hashRateHs > 0 || agent.hashRateGhs > 0)
-    ) {
-      return agent.hashRateHs > 0
-        ? agent.hashRateHs
-        : agent.hashRateGhs * 1e9;
-    }
-    const d = deviceHr.device;
-    if (!d || !d.online) return 0;
-    const ghs = Number(d.hashRateGhs);
-    if (Number.isFinite(ghs) && ghs > 0) return ghs * 1e9;
-    const hs = Number(d.hashRateHs);
-    return Number.isFinite(hs) && hs > 0 ? hs : 0;
-  })();
-
-  const boardLive = deviceHsLive > 0;
   const poolHsLive =
     poolHr.displayHs || poolHr.instantHs || poolHr.stableHs || 0;
-  const picked = pickDisplayHashrate({
-    deviceOnline: boardLive,
-    deviceHs: deviceHsLive,
-    poolStableHs: poolHsLive,
-  });
-  /** UI big number: board first, else pool */
-  const shownHs = picked.hs;
-  /**
-   * Source engine MUST run whenever we have real mining H.
-   * Prefer board; pool is valid ground truth for solo (same wallet work).
-   */
-  const engineHs = boardLive ? deviceHsLive : poolHsLive > 0 ? poolHsLive : 0;
+  const shownHs = poolHsLive;
+  const engineHs = poolHsLive > 0 ? poolHsLive : 0;
   const miningLive = engineHs > 0;
-  const hrSource = boardLive
-    ? "device"
-    : poolHsLive > 0
-      ? "pool"
-      : picked.source === "none"
-        ? "pool"
-        : picked.source;
-  const deviceAgeMs = agent.collectedAt
-    ? Math.max(0, nowTick - agent.collectedAt)
-    : deviceHr.device?.fetchedAt != null
-      ? Math.max(0, nowTick - deviceHr.device.fetchedAt)
-      : null;
-  const deviceIsSticky =
-    hrSource === "device" &&
-    !agent.hasLiveHashrate &&
-    deviceHr.device != null &&
-    deviceHr.device.live === false;
+  const hrSource = "pool" as const;
+  const boardLive = false;
 
-  // Connection light = pool/API health only (never requires bridge)
+  // Connection light = pool/API health only
   const heartbeatOk =
     dash.loading && !dash.user
       ? null
@@ -180,15 +112,9 @@ export function Dashboard({ address, onLogout }: Props) {
         : !dash.error || !!dash.user || shownHs > 0 || poolHr.displayHs > 0;
   const { status } = useOnlineStatus(heartbeatOk);
 
-  const bestForLadder = Math.max(
-    Number(dash.user?.bestshare || 0),
-    Number(deviceHr.device?.bestSessionDiff || 0)
-  );
+  const bestForLadder = Number(dash.user?.bestshare || 0);
   const bestShare = Math.max(bestForLadder, Number(dash.user?.bestever || 0));
-  const difficulty =
-    Number(dash.network?.difficulty) ||
-    Number(deviceHr.device?.networkDifficulty || 0) ||
-    0;
+  const difficulty = Number(dash.network?.difficulty) || 0;
 
   // v2.5 enhanced bundle for SourceEngineLive viz
   const engineEnhanced = useMemo(() => {
@@ -237,112 +163,17 @@ export function Dashboard({ address, onLogout }: Props) {
     if (dash.celebration) setCelebrateOpen(true);
   }, [dash.celebration]);
 
-  // Force-sync device IP from storage (first paint / AddressGate race)
+  // Pool hashrate chart samples
   useEffect(() => {
-    const ip = getStoredDeviceIp() || "auto";
-    setDeviceIpDraft(ip);
-    if (ip !== deviceHr.ip) deviceHr.setIp(ip);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  async function handleDeviceConnect() {
-    setDeviceBusy(true);
-    try {
-      const raw = deviceIpDraft.trim() || "auto";
-      // Parallel: bridge agent + device path — first good result wins for UI
-      const [info, snap] = await Promise.all([
-        deviceHr.connect(raw),
-        agent.refresh(),
-      ]);
-      const host =
-        info?.ip ||
-        snap?.telemetry?.hostIp ||
-        (agent.hasLiveHashrate ? agent.hostIp : "") ||
-        raw;
-      setDeviceIpDraft(String(host));
-    } finally {
-      setDeviceBusy(false);
-    }
-  }
-
-  async function handleDeviceScan() {
-    setDeviceBusy(true);
-    try {
-      setDeviceIpDraft("auto");
-      const [found, snap] = await Promise.all([
-        deviceHr.scanLan(),
-        agent.refresh(),
-      ]);
-      const host =
-        found?.[0]?.ip ||
-        snap?.telemetry?.hostIp ||
-        "auto";
-      setDeviceIpDraft(String(host));
-    } finally {
-      setDeviceBusy(false);
-    }
-  }
-
-  // Chart samples from active display source (device-first, 1s)
-  useEffect(() => {
-    if (shownHs > 0 && hrSource === "device") {
-      setLocalHistory((prev) => pushSample(address, toGHs(shownHs), prev));
-    }
-  }, [address, shownHs, hrSource, deviceHr.device?.fetchedAt]);
-
-  // Pool chart only when device unavailable — use live 1m display
-  useEffect(() => {
-    if (hrSource === "device") return;
     const poolHs = poolHr.displayHs || poolHr.instantHs || poolHr.stableHs;
     if (poolHs <= 0) return;
     setLocalHistory((prev) => pushSample(address, toGHs(poolHs), prev));
   }, [
     address,
-    hrSource,
     poolHr.displayHs,
     poolHr.instantHs,
     poolHr.stableHs,
     dash.lastUpdated,
-  ]);
-
-  // foundBlocks: only on INCREASE (not historical total on first load)
-  useEffect(() => {
-    if (!deviceHr.device?.online) return;
-    const total = Number(deviceHr.device.totalFoundBlocks || deviceHr.device.foundBlocks || 0);
-    if (prevFound.current === null) {
-      prevFound.current = total;
-      return;
-    }
-    if (total > prevFound.current) {
-      const id = `device-blocks-${address}-${total}`;
-      if (!wasBlockCelebrated(id)) {
-        markBlockCelebrated(id);
-        setCelebrateOpen(true);
-        notifyBlockFound(null, 0);
-        notify("🎉 BLOCK FOUND (device)", `totalFoundBlocks=${total}`, id);
-      }
-      prevFound.current = total;
-    }
-  }, [
-    address,
-    deviceHr.device?.online,
-    deviceHr.device?.foundBlocks,
-    deviceHr.device?.totalFoundBlocks,
-  ]);
-
-  // Temp ≥ 61°C → system notification (re-arms below 55°C)
-  useEffect(() => {
-    if (!deviceHr.device?.online) return;
-    const t = Number(deviceHr.device.temp);
-    if (!Number.isFinite(t)) return;
-    if (shouldNotifyTempHot(t)) {
-      notifyTempHot(t, deviceHr.device.deviceModel);
-    }
-  }, [
-    deviceHr.device?.online,
-    deviceHr.device?.temp,
-    deviceHr.device?.deviceModel,
-    deviceHr.device?.fetchedAt,
   ]);
 
   const shortAddr =
@@ -358,65 +189,22 @@ export function Dashboard({ address, onLogout }: Props) {
   }
 
   async function handleRefresh() {
-    await Promise.all([
-      dash.refresh(),
-      deviceHr.hasDevice ? deviceHr.refresh() : Promise.resolve(),
-    ]);
+    await dash.refresh();
   }
 
-  const deviceTemp =
-    agent.tempC != null && Number.isFinite(agent.tempC)
-      ? agent.tempC
-      : deviceHr.device?.temp != null && Number.isFinite(Number(deviceHr.device.temp))
-        ? Number(deviceHr.device.temp)
-        : null;
-  const tempHot = deviceTemp != null && deviceTemp >= TEMP_HOT_C;
-  const tempWarn =
-    deviceTemp != null && deviceTemp >= TEMP_CLEAR_C && deviceTemp < TEMP_HOT_C;
-
-  const livePowerW = (() => {
-    if (agent.powerW != null && Number.isFinite(agent.powerW)) return agent.powerW;
-    if (deviceHr.device?.power != null && Number.isFinite(Number(deviceHr.device.power)))
-      return Number(deviceHr.device.power);
-    return 0;
-  })();
-
-  const boardKey =
-    agent.hostIp ||
-    deviceHr.device?.ip ||
-    agent.deviceModel ||
-    deviceHr.device?.deviceModel ||
-    "default";
-
-  // Track device peaks so gauge max follows 1.2 / 4.8 / 10 TH class boards
+  // Adaptive hashrate gauge peak from pool
   useEffect(() => {
-    const ghs =
-      deviceHsLive > 0
-        ? deviceHsLive / 1e9
-        : shownHs > 0
-          ? shownHs / 1e9
-          : 0;
-    setGaugePeak((prev) => {
-      if (prev.key !== boardKey) {
-        return {
-          key: boardKey,
-          ghs: ghs > 0 ? ghs : 0,
-          powerW: livePowerW > 0 ? livePowerW : 0,
-        };
-      }
-      return {
-        key: prev.key,
-        ghs: Math.max(prev.ghs, ghs),
-        powerW: Math.max(prev.powerW, livePowerW),
-      };
-    });
-  }, [boardKey, deviceHsLive, shownHs, livePowerW]);
+    const ghs = shownHs > 0 ? shownHs / 1e9 : 0;
+    if (ghs > 0) setGaugePeakGhs((p) => Math.max(p, ghs));
+  }, [shownHs]);
 
   const hashScale = hashrateGaugeScale(
     shownHs > 0 ? shownHs / 1e9 : 0,
-    gaugePeak.ghs
+    gaugePeakGhs
   );
-  const pwrScale = powerGaugeScale(livePowerW, gaugePeak.powerW);
+  const workerCount = Number(dash.user?.workers || 0);
+  const bestShareLog =
+    bestShare > 1 ? Math.min(100, Math.log10(bestShare) * 10) : 0;
 
   if (dash.loading && !dash.user) {
     return (
@@ -460,10 +248,6 @@ export function Dashboard({ address, onLogout }: Props) {
 
   const u = dash.user!;
   const net = dash.network;
-  const modelLabel =
-    deviceHr.device?.online && deviceHr.device.deviceModel
-      ? deviceHr.device.deviceModel
-      : "Solo miner";
 
   const toolBtn =
     "sp-tool-glow inline-flex items-center justify-center h-8 px-2.5 text-[11px] rounded-lg border border-[var(--border)] text-[var(--muted)] shrink-0 leading-none";
@@ -565,33 +349,33 @@ export function Dashboard({ address, onLogout }: Props) {
               className="engine-scan pointer-events-none absolute inset-x-0 z-10 h-14 bg-gradient-to-b from-transparent via-amber-500/12 to-transparent"
               aria-hidden
             />
-        {/* Mining contact strip — core product path */}
+        {/* Mining contact — pool only */}
         <div
-          className={`relative z-[1] rounded-xl border px-3 py-2 text-[11px] font-mono ${
-            boardLive
+          className={`relative z-[1] rounded-xl border px-3 py-2.5 flex items-center gap-2.5 ${
+            miningLive
               ? "border-emerald-600/50 bg-emerald-950/40 text-emerald-300"
-              : miningLive
-                ? "border-amber-600/50 bg-amber-950/30 text-amber-200"
-                : "border-red-800/50 bg-red-950/30 text-red-300"
+              : "border-red-800/50 bg-red-950/30 text-red-300"
           }`}
         >
-          {boardLive
-            ? locale === "ko"
-              ? `보드 컨택 LIVE · ${(deviceHsLive / 1e9).toFixed(1)} GH/s · ${
-                  agent.hostIp || deviceHr.device?.ip || "—"
-                } · ${agent.tempC ?? deviceHr.device?.temp ?? "—"}°C · ${
-                  deviceAgeMs != null ? `${(deviceAgeMs / 1000).toFixed(0)}s` : "0s"
-                } · 소스엔진 ON`
-              : `BOARD LIVE · ${(deviceHsLive / 1e9).toFixed(1)} GH/s · ${
-                  agent.hostIp || deviceHr.device?.ip || "—"
-                } · ${agent.tempC ?? deviceHr.device?.temp ?? "—"}°C · Source Engine ON`
-            : miningLive
+          <span className="relative flex h-3 w-3 shrink-0">
+            {miningLive && (
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-50" />
+            )}
+            <span
+              className={`relative inline-flex rounded-full h-3 w-3 ${
+                miningLive ? "bg-emerald-400" : "bg-red-500"
+              }`}
+            />
+          </span>
+          <div className="min-w-0 text-[11px] font-mono leading-snug">
+            {miningLive
               ? locale === "ko"
-                ? `풀 실시간 컨택 · ${(poolHsLive / 1e12).toFixed(2)} TH/s · 지갑+풀 기준 소스엔진·확률 ON · 설치 불필요`
-                : `POOL LIVE · ${(poolHsLive / 1e12).toFixed(2)} TH/s · Source Engine ON (wallet+pool) · no install`
+                ? `채굴 모니터링 LIVE · ${(poolHsLive / 1e12).toFixed(2)} TH/s · 풀 · 소스엔진 ON`
+                : `MINING LIVE · ${(poolHsLive / 1e12).toFixed(2)} TH/s · pool · source engine ON`
               : locale === "ko"
-                ? "컨택 없음 · 지갑 주소와 풀(CKPool 등)을 확인하세요. 채굴 중이면 수 분 내 해시가 표시됩니다."
-                : "NO CONTACT · check wallet address + pool (e.g. CKPool). Hashrate appears within minutes while mining."}
+                ? "채굴 신호 없음 · 지갑+풀 확인 · 채굴 중이면 수 분 내 표시"
+                : "No mining signal · check wallet+pool · appears within minutes while mining"}
+          </div>
         </div>
 
         {/* Analog instrument cluster — retro hi-fi panel (light + dark) */}
@@ -602,24 +386,20 @@ export function Dashboard({ address, onLogout }: Props) {
             </div>
             <div
               className={`text-[10px] font-mono px-2 py-0.5 rounded border ${
-                shownHs > 0 || !!dash.user
+                miningLive
                   ? "border-emerald-600/50 text-emerald-700 dark:text-emerald-400 bg-emerald-500/10"
                   : dash.loading
                     ? "border-amber-600/50 text-amber-700 dark:text-amber-400 bg-amber-500/10"
                     : "border-[var(--border)] text-[var(--muted)]"
               }`}
             >
-              {agent.hasLiveHashrate || deviceHr.hasLiveHashrate
+              {miningLive
                 ? locale === "ko"
-                  ? "LIVE · 기기"
-                  : "LIVE · DEVICE"
-                : shownHs > 0 || !!dash.user
-                  ? locale === "ko"
-                    ? "LIVE · 풀"
-                    : "LIVE · POOL"
-                  : dash.loading
-                    ? "…"
-                    : "IDLE"}
+                  ? "LIVE · 풀"
+                  : "LIVE · POOL"
+                : dash.loading
+                  ? "…"
+                  : "IDLE"}
             </div>
           </div>
           <div className="flex flex-wrap justify-around items-start gap-3 sm:gap-5 overflow-visible pb-1">
@@ -629,48 +409,37 @@ export function Dashboard({ address, onLogout }: Props) {
               max={hashScale.max}
               label="HASHRATE"
               unit={hashScale.unit}
-              live={boardLive || shownHs > 0}
+              live={miningLive}
               decimals={hashScale.decimals}
             />
             <AnalogGauge
-              value={deviceTemp != null && Number.isFinite(deviceTemp) ? deviceTemp : 0}
+              value={bestShareLog}
               min={0}
               max={100}
-              label="TEMP"
-              unit="°C"
-              warnAt={55}
-              dangerAt={TEMP_HOT_C}
-              live={boardLive && deviceTemp != null}
+              label="BEST SHARE"
+              unit="log"
+              live={bestShare > 0}
               decimals={1}
             />
             <AnalogGauge
-              value={pwrScale.value}
+              value={workerCount}
               min={0}
-              max={pwrScale.max}
-              label="POWER"
-              unit="W"
-              live={boardLive && pwrScale.value > 0}
-              decimals={pwrScale.decimals}
+              max={Math.max(4, workerCount + 1)}
+              label="WORKERS"
+              unit=""
+              live={workerCount > 0}
+              decimals={0}
             />
           </div>
           <div className="sp-retro-hash-readout mt-2 text-center font-mono text-2xl sm:text-3xl tabular-nums tracking-tight font-bold">
             {shownHs > 0 ? formatHashrateGhs(shownHs, 2) : "—"}
             <span className="text-sm text-amber-700 dark:text-amber-500 ml-2 font-semibold">
-              {hrSource === "device"
-                ? agent.hasLiveHashrate
-                  ? "AGENT"
-                  : "DEVICE"
-                : "POOL"}
+              POOL
             </span>
           </div>
           <div className="sp-retro-meta text-center text-[10px] font-mono mt-1 break-all">
-            {agent.hasLiveHashrate
-              ? `${agent.deviceModel || "miner"} · ${agent.hostIp || "—"} · age ${
-                  deviceAgeMs != null ? `${(deviceAgeMs / 1000).toFixed(0)}s` : "—"
-                }`
-              : hrSource === "device" && deviceHr.device
-                ? `${deviceHr.device.deviceModel} · ${deviceHr.ip || ""}`
-                : `pool 1m ${u.hashrate1m || "—"} · 5m ${u.hashrate5m || "—"}`}
+            pool 1m {u.hashrate1m || "—"} · 5m {u.hashrate5m || "—"} · 1h{" "}
+            {u.hashrate1hr || "—"}
           </div>
         </section>
 
@@ -678,28 +447,18 @@ export function Dashboard({ address, onLogout }: Props) {
         <section className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-3 sm:p-4 min-w-0 overflow-hidden">
           <div className="flex flex-col sm:flex-row sm:items-start gap-3">
             <div className="min-w-0 flex-1 space-y-1.5">
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] uppercase tracking-wider text-[var(--fg)]0">
+              <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10px] uppercase tracking-wider text-[var(--muted)]">
                 <span className="inline-flex items-center gap-1.5 shrink-0">
-                  {hrSource === "device"
-                    ? locale === "ko"
-                      ? "보드 실측"
-                      : "Board live"
-                    : locale === "ko"
-                      ? "풀 해시레이트 (링크 전용)"
-                      : "Pool hashrate (link only)"}
+                  {locale === "ko" ? "풀 해시레이트" : "Pool hashrate"}
                   <span className="relative flex h-1.5 w-1.5">
                     <span
                       className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
-                        hrSource === "device" && !deviceIsSticky
-                          ? "bg-emerald-400"
-                          : "bg-amber-400"
+                        miningLive ? "bg-emerald-400" : "bg-zinc-500"
                       }`}
                     />
                     <span
                       className={`relative inline-flex rounded-full h-1.5 w-1.5 ${
-                        hrSource === "device" && !deviceIsSticky
-                          ? "bg-emerald-500"
-                          : "bg-amber-500"
+                        miningLive ? "bg-emerald-500" : "bg-zinc-500"
                       }`}
                     />
                   </span>
@@ -707,202 +466,8 @@ export function Dashboard({ address, onLogout }: Props) {
               </div>
 
               <div className="text-[10px] font-mono text-[var(--muted)] leading-relaxed break-all">
-                {hrSource === "device" && (agent.hasLiveHashrate || deviceHr.device) ? (
-                  <>
-                    <span className="text-emerald-500">
-                      {agent.hasLiveHashrate ? "AGENT" : "DEVICE"}
-                    </span>{" "}
-                    {(agent.hashRateGhs || deviceHr.device?.hashRateGhs || 0).toFixed(2)} GH/s
-                    {deviceTemp != null && ` · ${deviceTemp.toFixed(1)}°C`}
-                    {(agent.powerW ?? deviceHr.device?.power) != null &&
-                      ` · ${Number(agent.powerW ?? deviceHr.device?.power).toFixed(1)}W`}
-                  </>
-                ) : (
-                  <>
-                    <span className="text-amber-500">POOL</span> 1m {u.hashrate1m || "—"} · 5m{" "}
-                    {u.hashrate5m || "—"} · 1h {u.hashrate1hr || "—"}
-                  </>
-                )}
-              </div>
-
-              {/* Live board temperature (only if board path active) */}
-              {deviceHr.hasLiveHashrate && (
-                <div
-                  className={`flex flex-wrap items-center gap-2 rounded-xl border px-2.5 py-2 ${
-                    tempHot
-                      ? "border-red-500/50 bg-red-500/15"
-                      : tempWarn
-                        ? "border-amber-500/40 bg-amber-500/10"
-                        : "border-[var(--border)] bg-[var(--bg)]"
-                  }`}
-                >
-                  <div className="min-w-0 flex-1">
-                    <div className="text-[9px] uppercase tracking-wider text-[var(--muted)]">
-                      {locale === "ko" ? "기기 온도" : "Board temp"} · 1s
-                    </div>
-                    <div
-                      className={`text-lg sm:text-xl font-mono font-bold tabular-nums leading-none mt-0.5 ${
-                        tempHot
-                          ? "text-red-400"
-                          : tempWarn
-                            ? "text-amber-400"
-                            : "text-emerald-400"
-                      }`}
-                    >
-                      {deviceTemp != null ? `${deviceTemp.toFixed(1)}°C` : "—"}
-                    </div>
-                  </div>
-                  {deviceHr.device?.power != null &&
-                    Number.isFinite(deviceHr.device.power) && (
-                      <div className="text-right shrink-0">
-                        <div className="text-[9px] text-[var(--muted)] uppercase">
-                          Power
-                        </div>
-                        <div className="text-sm font-mono font-semibold text-[var(--fg)]">
-                          {deviceHr.device.power.toFixed(1)}W
-                        </div>
-                      </div>
-                    )}
-                  <div
-                    className={`text-[10px] font-medium px-2 py-1 rounded-lg shrink-0 ${
-                      tempHot
-                        ? "bg-red-500/25 text-red-300"
-                        : tempWarn
-                          ? "bg-amber-500/20 text-amber-300"
-                          : "bg-emerald-500/15 text-emerald-400"
-                    }`}
-                  >
-                    {tempHot
-                      ? locale === "ko"
-                        ? `과열 ≥${TEMP_HOT_C}°C`
-                        : `HOT ≥${TEMP_HOT_C}°C`
-                      : tempWarn
-                        ? locale === "ko"
-                          ? "주의"
-                          : "Warm"
-                        : locale === "ko"
-                          ? "정상"
-                          : "OK"}
-                  </div>
-                </div>
-              )}
-
-              {tempHot && (
-                <div className="text-[11px] leading-relaxed text-red-200 bg-red-600/20 border border-red-500/40 rounded-lg px-2.5 py-2 break-words">
-                  {locale === "ko"
-                    ? `🔥 보드 ${deviceTemp!.toFixed(1)}°C — ${TEMP_HOT_C}°C 이상입니다. 냉각·통풍을 확인하세요.`
-                    : `🔥 Board ${deviceTemp!.toFixed(1)}°C — over ${TEMP_HOT_C}°C. Check cooling.`}
-                  {!notificationsEnabled() && (
-                    <span className="block mt-1 text-[10px] text-red-200/80">
-                      {locale === "ko"
-                        ? "시스템 알림은 헤더 🔔 알림을 켜면 받습니다."
-                        : "Enable 🔔 in the header for system alerts."}
-                    </span>
-                  )}
-                </div>
-              )}
-
-              <div className="text-[9px] font-mono text-[var(--muted)] leading-relaxed break-all">
-                ckpool: 1m {u.hashrate1m || "—"} / 5m {u.hashrate5m || "—"} / 1h{" "}
-                {u.hashrate1hr || "—"} / 1d {u.hashrate1d || "—"}
-              </div>
-
-              {/* Board status — honest LED + optional public tunnel / agent only */}
-              <div className="rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3 space-y-2.5">
-                <div className="flex items-center justify-between gap-2">
-                  <div className="text-[10px] uppercase tracking-wider text-[var(--muted)] font-semibold">
-                    {locale === "ko" ? "보드 상태" : "Board status"}
-                  </div>
-                  <div
-                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold border ${
-                      boardLive
-                        ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-400"
-                        : "border-red-500/40 bg-red-500/10 text-red-400"
-                    }`}
-                    role="status"
-                  >
-                    <span
-                      className={`relative flex h-2.5 w-2.5 ${
-                        boardLive ? "bg-emerald-400" : "bg-red-500"
-                      } rounded-full`}
-                    >
-                      {boardLive && (
-                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-50" />
-                      )}
-                    </span>
-                    {boardLive
-                      ? locale === "ko"
-                        ? "연동됨 · 온라인"
-                        : "Linked · ONLINE"
-                      : locale === "ko"
-                        ? "보드 오프라인"
-                        : "Board OFFLINE"}
-                  </div>
-                </div>
-
-                <p className="text-[10px] text-[var(--muted)] leading-relaxed">
-                  {locale === "ko"
-                    ? "핵심: 지갑+풀이면 해시·소스엔진·확률은 이미 실시간입니다. 보드 온도/LAN 실측만 클라우드 웹에서 막힙니다(브라우저 보안)."
-                    : "Core: wallet+pool already powers live hashrate/engine. Only board temp/LAN stats are blocked by browser security on HTTPS cloud."}
-                </p>
-
-                <div className="flex flex-col sm:flex-row gap-1.5">
-                  <input
-                    type="text"
-                    value={deviceIpDraft}
-                    onChange={(e) => setDeviceIpDraft(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault();
-                        void handleDeviceConnect();
-                      }
-                    }}
-                    placeholder={
-                      locale === "ko"
-                        ? "선택: https://…터널 또는 LAN IP"
-                        : "Optional: https://tunnel or LAN IP"
-                    }
-                    spellCheck={false}
-                    autoComplete="off"
-                    className="flex-1 min-w-0 rounded-lg border border-[var(--border)] bg-[var(--card)] px-2.5 py-2 text-xs font-mono text-[var(--fg)]"
-                  />
-                  <button
-                    type="button"
-                    disabled={deviceBusy}
-                    onClick={() => void handleDeviceConnect()}
-                    className="text-[11px] px-3 py-2 rounded-lg font-semibold border border-[var(--border)] text-[var(--fg)] disabled:opacity-50 shrink-0"
-                  >
-                    {deviceBusy ? "…" : locale === "ko" ? "확인" : "Check"}
-                  </button>
-                </div>
-
-                <div
-                  className={`text-[10px] font-mono leading-relaxed break-words ${
-                    boardLive ? "text-emerald-400" : "text-[var(--muted)]"
-                  }`}
-                >
-                  {boardLive
-                    ? `● ${(deviceHsLive / 1e9).toFixed(1)} GH/s · ${
-                        agent.hostIp || deviceHr.device?.ip || "—"
-                      }${
-                        (agent.tempC ?? deviceHr.device?.temp) != null
-                          ? ` · ${agent.tempC ?? deviceHr.device?.temp}°C`
-                          : ""
-                      }`
-                    : deviceHr.error
-                      ? `○ ${deviceHr.error}`
-                      : locale === "ko"
-                        ? "○ 보드 미연결 · 채굴 모니터링은 위 풀 컨택으로 동작 중"
-                        : "○ Board offline · mining monitor runs on pool contact above"}
-                </div>
-
-                <button
-                  type="button"
-                  className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border)] text-[var(--muted)]"
-                  onClick={() => void handleRefresh()}
-                >
-                  {locale === "ko" ? "새로고침" : "Refresh"}
-                </button>
+                <span className="text-amber-500">POOL</span> 1m {u.hashrate1m || "—"} · 5m{" "}
+                {u.hashrate5m || "—"} · 1h {u.hashrate1hr || "—"} · 1d {u.hashrate1d || "—"}
               </div>
 
               <div className="grid grid-cols-2 gap-2 pt-1">
@@ -954,7 +519,6 @@ export function Dashboard({ address, onLogout }: Props) {
               </select>
               <div className="mt-1.5 flex sm:flex-col flex-wrap gap-x-2 gap-y-0.5 text-[10px] font-mono">
                 <span className="text-amber-500/90 break-all">{dash.pool}</span>
-                <span className="text-[var(--muted)] break-all">{modelLabel}</span>
                 {dash.lastUpdated != null && (
                   <span className="text-[var(--muted)]">
                     Δ{Math.max(0, Math.floor((nowTick - dash.lastUpdated) / 1000))}s
@@ -968,13 +532,8 @@ export function Dashboard({ address, onLogout }: Props) {
         <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           <StatCard
             label={t("workers")}
-            value={String(
-              Math.max(
-                Number(u.workers) || 0,
-                agent.hasLiveHashrate || deviceHr.device?.online ? 1 : 0
-              )
-            )}
-            live={hrSource === "device" || (!!u.lastshare && nowTick / 1000 - u.lastshare < 120)}
+            value={String(Number(u.workers) || 0)}
+            live={!!u.lastshare && nowTick / 1000 - u.lastshare < 120}
           />
           <StatCard
             label={t("authorised")}
@@ -992,39 +551,16 @@ export function Dashboard({ address, onLogout }: Props) {
           />
           <StatCard
             label={t("totalShares")}
-            value={Number(
-              agent.sharesAccepted ||
-                deviceHr.device?.sharesAccepted ||
-                u.shares ||
-                0
-            ).toLocaleString()}
-            sub={
-              (agent.sharesRejected || deviceHr.device?.sharesRejected)
-                ? `rej ${agent.sharesRejected || deviceHr.device?.sharesRejected}`
-                : undefined
-            }
+            value={Number(u.shares || 0).toLocaleString()}
           />
           <StatCard
             label={t("bestShare")}
-            value={formatDifficulty(
-              Math.max(
-                Number(u.bestshare || 0),
-                Number(agent.bestSessionDiff || 0),
-                Number(deviceHr.device?.bestSessionDiff || 0),
-                bestForLadder || 0
-              )
-            )}
+            value={formatDifficulty(Number(u.bestshare || bestForLadder || 0))}
             accent="amber"
           />
           <StatCard
             label={t("bestEver")}
-            value={formatDifficulty(
-              Math.max(
-                Number(u.bestever || 0),
-                Number(agent.bestDiff || 0),
-                Number(deviceHr.device?.bestDiff || 0)
-              )
-            )}
+            value={formatDifficulty(Number(u.bestever || 0))}
             accent="pulse"
           />
         </div>
@@ -1082,31 +618,25 @@ export function Dashboard({ address, onLogout }: Props) {
                 hashrateHs={engineHs > 0 ? engineHs : 0}
                 networkDiff={difficulty}
                 bestShare={bestForLadder || bestShare}
-                live={miningLive && !deviceIsSticky}
+                live={miningLive}
                 pDay={liveTick?.display.pDay || 0}
-                confidence={boardLive ? 0.95 : miningLive ? 0.85 : 0.15}
-                agentStatus={
-                  boardLive
-                    ? "BOARD_STREAMING"
-                    : miningLive
-                      ? "POOL_STREAMING"
-                      : agent.agentStatus || "NO_CONTACT"
-                }
+                confidence={miningLive ? 0.9 : 0.15}
+                agentStatus={miningLive ? "POOL_STREAMING" : "NO_CONTACT"}
                 enhanced={engineEnhanced}
               />
             )}
             {!miningLive && (
               <div className="text-[11px] leading-relaxed text-amber-100 bg-amber-950/50 border border-amber-700/50 rounded-xl px-3 py-2.5">
                 {locale === "ko"
-                  ? "⚠ 채굴 신호 없음 — 지갑 주소와 풀이 맞는지 확인하세요. 설치/브리지 없이 풀 API만으로 동작합니다."
-                  : "⚠ No mining signal — check wallet + pool. Works from pool API with no install/bridge."}
+                  ? "⚠ 채굴 신호 없음 — 지갑 주소와 풀을 확인하세요."
+                  : "⚠ No mining signal — check wallet address and pool."}
               </div>
             )}
-            {miningLive && !boardLive && (
+            {miningLive && (
               <div className="text-[11px] leading-relaxed text-emerald-100 bg-emerald-950/40 border border-emerald-700/40 rounded-xl px-3 py-2.5">
                 {locale === "ko"
-                  ? "✓ 풀 기준 소스엔진 가동 중 (집 밖·모바일 데이터 OK, 설치 없음). 보드 온도는 같은 Wi‑Fi IP 또는 공개 터널 URL 시에만 추가됩니다."
-                  : "✓ Source Engine on pool data (works away from home, no install). Board temp only with same-Wi‑Fi IP or public tunnel URL."}
+                  ? "✓ 풀 기준 채굴 모니터링 · 소스엔진 가동 중 (설치 없음)"
+                  : "✓ Pool mining monitor · source engine live (no install)"}
               </div>
             )}
             {difficulty > 0 && (
@@ -1118,21 +648,12 @@ export function Dashboard({ address, onLogout }: Props) {
                 networkHashrateHs={Number(net?.hashrate) || 0}
                 lastShare={u.lastshare || 0}
                 authorised={u.authorised || 0}
-                shares={Number(
-                  agent.sharesAccepted ||
-                    deviceHr.device?.sharesAccepted ||
-                    u.shares ||
-                    0
-                )}
+                shares={Number(u.shares || 0)}
                 workers={Number(u.workers || 0)}
                 pool={dash.pool}
-                foundBlocks={
-                  agent.foundBlocks || deviceHr.device?.foundBlocks || 0
-                }
-                deviceOnline={boardLive || miningLive}
-                hasDevice={
-                  boardLive || miningLive || agent.agentOnline || deviceHr.hasDevice
-                }
+                foundBlocks={0}
+                deviceOnline={miningLive}
+                hasDevice={miningLive}
               />
             )}
           </>
@@ -1160,35 +681,9 @@ export function Dashboard({ address, onLogout }: Props) {
             <MempoolBlocks />
           </div>
         )}
-
-        {/* ===== TAB: board (optional advanced) ===== */}
-        {tab === "bridge" && (
-          <div className="space-y-3">
-            <BridgePanel
-              locale={locale}
-              address={address}
-              boardLive={boardLive}
-              hashRateGhs={
-                boardLive ? deviceHsLive / 1e9 : agent.hashRateGhs || 0
-              }
-              hostIp={agent.hostIp || deviceHr.device?.ip || ""}
-              staleMs={deviceAgeMs ?? agent.staleMs}
-              agentStatus={agent.agentStatus}
-            />
-            <div className="flex flex-wrap justify-center gap-2 pt-1">
-              <LightningTip variant="pill" />
-              <VersionBadge size="md" />
-            </div>
-          </div>
-        )}
       </main>
 
-      <BottomNav
-        tab={tab}
-        onChange={setTab}
-        locale={locale}
-        bridgeLive={boardLive}
-      />
+      <BottomNav tab={tab} onChange={setTab} locale={locale} />
 
       {dash.celebration && (
         <Celebration

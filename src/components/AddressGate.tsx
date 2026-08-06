@@ -6,11 +6,9 @@ import {
   setStoredAddress,
   setStoredPool,
   getStoredPool,
-  getStoredDeviceIp,
   setStoredDeviceIp,
   getLastAddress,
   rememberLastAddress,
-  normalizeDeviceHost,
 } from "@/lib/history";
 import { POOL_OPTIONS } from "@/lib/pools";
 import { useI18n, localeButtonLabel } from "@/lib/i18n";
@@ -25,6 +23,7 @@ interface Props {
   defaultAddress?: string;
 }
 
+/** Pool-only gate: wallet + pool → mining monitor (no board IP). */
 export function AddressGate({ onSubmit, defaultAddress = "" }: Props) {
   const { t, locale, cycleLocale } = useI18n();
   const { theme, toggle } = useTheme();
@@ -36,10 +35,6 @@ export function AddressGate({ onSubmit, defaultAddress = "" }: Props) {
   const [pool, setPool] = useState(() => {
     if (typeof window === "undefined") return "solo.ckpool.org";
     return getStoredPool() || "solo.ckpool.org";
-  });
-  const [deviceIp, setDeviceIp] = useState(() => {
-    if (typeof window === "undefined") return "auto";
-    return getStoredDeviceIp() || "auto";
   });
   const [error, setError] = useState<string | null>(null);
 
@@ -59,14 +54,8 @@ export function AddressGate({ onSubmit, defaultAddress = "" }: Props) {
     setStoredAddress(a);
     rememberLastAddress(a);
     setStoredPool(pool);
-    // Empty = pool-only (no board probe). "auto" still attempts optional discovery.
-    const raw = deviceIp.trim();
-    if (!raw) {
-      setStoredDeviceIp("");
-    } else {
-      const host = normalizeDeviceHost(raw) || raw;
-      setStoredDeviceIp(host === "bridge" ? "auto" : host);
-    }
+    // Explicit pool-only: do not probe board
+    setStoredDeviceIp("");
     onSubmit(a);
   }
 
@@ -104,16 +93,13 @@ export function AddressGate({ onSubmit, defaultAddress = "" }: Props) {
           <h1 className="text-3xl font-bold tracking-tight">
             Solo<span className="text-amber-500">Pulse</span>
           </h1>
-          <p className="mt-3 text-sm text-[var(--muted)] leading-relaxed">{t("tagline")}</p>
-          <p className="mt-2 text-[11px] text-amber-600/90 dark:text-amber-400/90 leading-relaxed font-medium">
-            {locale === "ko"
-              ? "필수: 지갑 + 풀 → 어디서나 해시·확률 실시간 (설치 없음)"
-              : "Required: wallet + pool → live hashrate/odds from any internet (no install)"}
+          <p className="mt-3 text-sm text-[var(--muted)] leading-relaxed">
+            {t("tagline")}
           </p>
-          <p className="mt-1 text-[11px] text-[var(--muted)] leading-relaxed">
+          <p className="mt-2 text-[12px] text-amber-600/90 dark:text-amber-400/90 leading-relaxed font-medium">
             {locale === "ko"
-              ? "선택: 기기 IP · 같은 Wi‑Fi 또는 공개 터널 URL일 때만 보드 온도"
-              : "Optional: miner IP · board temp only on same Wi‑Fi or public tunnel URL"}
+              ? "지갑 + 풀만 입력 · 해시·소스엔진·확률 실시간 (설치 없음)"
+              : "Wallet + pool only · live hashrate, engine & odds (no install)"}
           </p>
         </div>
 
@@ -160,65 +146,6 @@ export function AddressGate({ onSubmit, defaultAddress = "" }: Props) {
                 </option>
               ))}
             </select>
-          </div>
-
-          <div>
-            <label
-              htmlFor="deviceIp"
-              className="block text-xs font-medium uppercase tracking-wider text-[var(--muted)] mb-2"
-            >
-              {t("deviceIp")}{" "}
-              <span className="normal-case font-normal opacity-70">
-                ({locale === "ko" ? "선택 · 보드 온도" : "optional · board temp"})
-              </span>
-            </label>
-            <input
-              id="deviceIp"
-              type="text"
-              autoComplete="off"
-              spellCheck={false}
-              placeholder={
-                locale === "ko"
-                  ? "비워두기 / LAN IP / https://….trycloudflare.com"
-                  : "skip / LAN IP / https://….trycloudflare.com"
-              }
-              value={deviceIp}
-              onChange={(e) => setDeviceIp(e.target.value)}
-              className="w-full rounded-xl bg-[var(--bg)] border border-[var(--border)] focus:border-amber-500 outline-none px-4 py-3 text-sm font-mono text-[var(--fg)] placeholder:text-[var(--muted)]"
-            />
-            <div className="mt-2 flex flex-wrap gap-1.5">
-              <button
-                type="button"
-                onClick={() => setDeviceIp("auto")}
-                className="text-[10px] px-2.5 py-1 rounded-lg border border-amber-600/50 bg-amber-500/10 text-amber-400"
-              >
-                {locale === "ko" ? "auto (시도)" : "auto (try)"}
-              </button>
-              <button
-                type="button"
-                onClick={() => setDeviceIp("")}
-                className="text-[10px] px-2.5 py-1 rounded-lg border border-[var(--border)] text-[var(--muted)]"
-              >
-                {locale === "ko" ? "없음 (풀만)" : "none (pool only)"}
-              </button>
-              {["172.30.1.33", "172.30.1.70", "172.30.1.56", "192.168.1.45"].map(
-                (ip) => (
-                  <button
-                    key={ip}
-                    type="button"
-                    onClick={() => setDeviceIp(ip)}
-                    className="text-[10px] px-2 py-1 rounded-lg border border-[var(--border)] text-[var(--muted)] hover:text-[var(--fg)] font-mono"
-                  >
-                    {ip.split(".").slice(-2).join(".")}
-                  </button>
-                )
-              )}
-            </div>
-            <p className="mt-1.5 text-[10px] text-[var(--muted)] leading-relaxed">
-              {locale === "ko"
-                ? "공개 인터넷(모바일 데이터)에서는 집 LAN IP에 닿을 수 없습니다. 보드 상세는 같은 Wi‑Fi이거나 공개 HTTPS 터널 URL일 때만. 해시·엔진은 지갑+풀만으로 동작합니다."
-                : "From public internet (mobile data) home LAN IPs are unreachable. Board detail only on same Wi‑Fi or public HTTPS tunnel URL. Hashrate/engine work with wallet+pool alone."}
-            </p>
           </div>
 
           {error && (
