@@ -73,8 +73,8 @@ export function Dashboard({ address, onLogout }: Props) {
   const { t, cycleLocale, locale } = useI18n();
   const { theme, toggle } = useTheme();
   const dash = useMinerDashboard(address);
-  /** Device + agent paths restored (IP input / auto-scan on home). */
-  const deviceHr = useDeviceHashrate(true);
+  /** Device + agent paths: LAN IP → connector window → source engine. */
+  const deviceHr = useDeviceHashrate(true, address);
   const agent = useAgentTelemetry(true, address);
   const [tab, setTab] = useState<DashTab>("home");
   const [celebrateOpen, setCelebrateOpen] = useState(true);
@@ -807,18 +807,32 @@ export function Dashboard({ address, onLogout }: Props) {
                 {u.hashrate1hr || "—"} / 1d {u.hashrate1d || "—"}
               </div>
 
-              {/* Device connect panel — IP + auto search restored */}
-              <div className="rounded-xl border border-[var(--border)] bg-[var(--bg)] p-2.5 space-y-2">
-                <div className="text-[10px] uppercase tracking-wider text-[var(--fg)]0 font-semibold">
-                  {locale === "ko" ? "기기 연결 (보드)" : "Device link (board)"}
+              {/* Device connect — IP like address bar → connector → source engine */}
+              <div className="rounded-xl border border-amber-600/40 bg-[var(--bg)] p-2.5 space-y-2">
+                <div className="text-[10px] uppercase tracking-wider text-amber-500 font-semibold">
+                  {locale === "ko"
+                    ? "기기 연결 · IP 입력하면 연동"
+                    : "Device link · enter IP"}
                 </div>
+                <p className="text-[10px] text-[var(--muted)] leading-relaxed">
+                  {locale === "ko"
+                    ? "주소창에 IP 치면 기기 홈이 뜨는 것처럼, 연결 시 연동 창이 보드 API를 읽어 소스엔진에 바로 붙입니다. (같은 Wi‑Fi 필수 · 연동 창 유지)"
+                    : "Same as typing the IP in the address bar: Connect opens a link window that reads the board API and feeds the source engine. (Same Wi‑Fi · keep window open)"}
+                </p>
                 <div className="flex flex-col sm:flex-row gap-1.5">
                   <input
                     type="text"
                     value={deviceIpDraft}
                     onChange={(e) => setDeviceIpDraft(e.target.value)}
-                    placeholder="auto / 172.30.1.33"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        void handleDeviceConnect();
+                      }
+                    }}
+                    placeholder="172.30.1.33 또는 http://…"
                     spellCheck={false}
+                    autoComplete="off"
                     className="flex-1 min-w-0 rounded-lg border border-[var(--border)] bg-[var(--card)] px-2.5 py-2 text-xs font-mono text-[var(--fg)]"
                   />
                   <div className="flex gap-1.5 shrink-0">
@@ -826,12 +840,12 @@ export function Dashboard({ address, onLogout }: Props) {
                       type="button"
                       disabled={deviceBusy}
                       onClick={() => void handleDeviceConnect()}
-                      className="text-[11px] px-3 py-2 rounded-lg font-semibold bg-amber-600 text-stone-950 disabled:opacity-50"
+                      className="text-[11px] px-3 py-2 rounded-lg font-semibold bg-amber-500 text-stone-950 disabled:opacity-50"
                     >
                       {deviceBusy
                         ? "…"
                         : locale === "ko"
-                          ? "연결"
+                          ? "연결·연동"
                           : "Connect"}
                     </button>
                     <button
@@ -840,24 +854,36 @@ export function Dashboard({ address, onLogout }: Props) {
                       onClick={() => void handleDeviceScan()}
                       className="text-[11px] px-3 py-2 rounded-lg font-medium border border-amber-600/60 text-amber-300 disabled:opacity-50"
                     >
-                      {locale === "ko" ? "자동 검색" : "Auto scan"}
+                      {locale === "ko" ? "자동 검색" : "Scan"}
                     </button>
                   </div>
                 </div>
                 <div className="flex flex-wrap gap-1">
-                  {["auto", "172.30.1.33", "172.30.1.70", "172.30.1.56"].map((ip) => (
-                    <button
-                      key={ip}
-                      type="button"
-                      onClick={() => setDeviceIpDraft(ip)}
-                      className="text-[9px] font-mono px-2 py-0.5 rounded border border-[var(--border)] text-[var(--muted)] hover:text-[var(--fg)]"
-                    >
-                      {ip}
-                    </button>
-                  ))}
+                  {["172.30.1.33", "172.30.1.70", "172.30.1.56", "192.168.1.45"].map(
+                    (ip) => (
+                      <button
+                        key={ip}
+                        type="button"
+                        onClick={() => {
+                          setDeviceIpDraft(ip);
+                          void (async () => {
+                            setDeviceBusy(true);
+                            try {
+                              await deviceHr.connect(ip);
+                            } finally {
+                              setDeviceBusy(false);
+                            }
+                          })();
+                        }}
+                        className="text-[9px] font-mono px-2 py-0.5 rounded border border-[var(--border)] text-[var(--muted)] hover:text-[var(--fg)]"
+                      >
+                        {ip.split(".").slice(-2).join(".")}
+                      </button>
+                    )
+                  )}
                 </div>
                 <div
-                  className={`text-[10px] font-mono leading-relaxed ${
+                  className={`text-[10px] font-mono leading-relaxed break-words ${
                     agent.hasLiveHashrate || deviceHr.hasLiveHashrate
                       ? "text-emerald-400"
                       : deviceHr.status === "connecting" || deviceBusy
@@ -868,21 +894,68 @@ export function Dashboard({ address, onLogout }: Props) {
                   {agent.hasLiveHashrate
                     ? `STREAMING · agent · ${agent.hostIp || "—"} · ${agent.hashRateGhs.toFixed(1)} GH/s`
                     : deviceHr.hasLiveHashrate
-                      ? `ONLINE · device · ${deviceHr.device?.ip || deviceHr.ip} · ${(deviceHr.device?.hashRateGhs || 0).toFixed(1)} GH/s`
+                      ? `ONLINE · board · ${deviceHr.device?.ip || deviceHr.ip} · ${(deviceHr.device?.hashRateGhs || 0).toFixed(1)} GH/s · engine ON`
                       : deviceHr.error
-                        ? `OFFLINE · ${deviceHr.error}`
+                        ? `${deviceHr.status === "connecting" ? "연결 중" : "OFFLINE"} · ${deviceHr.error}`
                         : deviceHr.status === "connecting" || deviceBusy
                           ? locale === "ko"
-                            ? "확인 중… 보드/터널 응답 대기 (보통 1~3초)"
-                            : "Checking… board/tunnel (usually 1–3s)"
-                          : miningLive
-                            ? locale === "ko"
-                              ? "보드 미연결 · 풀 데이터로 엔진 가동 중 · IP는 같은 Wi‑Fi/터널만"
-                              : "Board offline · engine on pool · IP only same Wi‑Fi/tunnel"
-                            : locale === "ko"
-                              ? "미연결 · 같은 Wi‑Fi에서 LAN IP 또는 공개 터널 URL"
-                              : "Offline · LAN IP on same Wi‑Fi or public tunnel URL"}
+                            ? "확인 중… 연동 창·보드 응답 대기"
+                            : "Checking… connector/board"
+                          : locale === "ko"
+                            ? "IP 입력 → 연결·연동 (같은 Wi‑Fi)"
+                            : "Enter IP → Connect (same Wi‑Fi)"}
                 </div>
+                {!deviceHr.hasLiveHashrate &&
+                  !agent.hasLiveHashrate &&
+                  (deviceHr.needConnectorClick ||
+                    deviceHr.needBookmarklet ||
+                    deviceHr.status === "connecting" ||
+                    !!deviceHr.error) && (
+                    <div className="space-y-1.5 rounded-lg border border-emerald-700/40 bg-emerald-950/30 p-2">
+                      <p className="text-[10px] text-emerald-100/90 leading-relaxed">
+                        {locale === "ko"
+                          ? "① 기기 홈이 뜨는지 확인 → ② 연동 창 유지 또는 ③ 기기 탭 주소창에 연동코드 붙여넣기(Enter). 성공 시 소스엔진 LIVE."
+                          : "① Confirm device home loads → ② keep link window or ③ paste link code in device tab address bar. Then source engine goes LIVE."}
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => deviceHr.openConnectorManual()}
+                          className="text-[11px] px-3 py-2 rounded-lg font-bold bg-emerald-500 text-stone-950"
+                        >
+                          {locale === "ko" ? "연동 창 열기" : "Open link window"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => deviceHr.openMinerHome()}
+                          className="text-[11px] px-3 py-2 rounded-lg border border-emerald-500/50 text-emerald-200"
+                        >
+                          {locale === "ko" ? "기기 홈 열기" : "Open device home"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void deviceHr.copyBookmarklet()}
+                          className="text-[11px] px-3 py-2 rounded-lg border border-amber-500/50 text-amber-200"
+                        >
+                          {locale === "ko"
+                            ? "연동코드 복사"
+                            : "Copy link code"}
+                        </button>
+                        <a
+                          href={deviceHr.bookmarkletHref}
+                          onClick={(e) => {
+                            // Prefer copy on mobile (javascript: often blocked)
+                            e.preventDefault();
+                            void deviceHr.copyBookmarklet();
+                          }}
+                          className="text-[11px] px-3 py-2 rounded-lg border border-[var(--border)] text-[var(--muted)]"
+                          title="Bookmarklet"
+                        >
+                          {locale === "ko" ? "북마크릿" : "Bookmarklet"}
+                        </a>
+                      </div>
+                    </div>
+                  )}
                 <div className="flex flex-wrap gap-1.5">
                   <button
                     type="button"
@@ -897,13 +970,6 @@ export function Dashboard({ address, onLogout }: Props) {
                     onClick={() => void agent.refresh()}
                   >
                     {locale === "ko" ? "Agent 갱신" : "Refresh agent"}
-                  </button>
-                  <button
-                    type="button"
-                    className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border)] text-[var(--muted)]"
-                    onClick={() => setTab("bridge")}
-                  >
-                    {locale === "ko" ? "보드 옵션 →" : "Board options →"}
                   </button>
                 </div>
               </div>

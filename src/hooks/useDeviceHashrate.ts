@@ -15,6 +15,15 @@ import {
   parseDeviceTarget,
   type DeviceInfo,
 } from "@/lib/deviceClient";
+import {
+  DEVICE_MSG,
+  buildMinerBookmarklet,
+  deviceInfoFromMessage,
+  downloadDeviceConnector,
+  isMixedContentBlockLikely,
+  openDeviceConnector,
+  openMinerHome,
+} from "@/lib/deviceConnector";
 
 export type { DeviceInfo };
 
@@ -53,11 +62,13 @@ function isTunnelHost(raw: string): boolean {
 }
 
 /**
- * Always works with start-device-bridge.bat on home PC:
- * - Cloud: connects via ip=auto (live tunnel registry)
- * - LAN IP still accepted (server falls back to registry tunnel)
+ * Board path (no install):
+ * 1) Browser direct when allowed (HTTP page / Capacitor / public HTTPS tunnel)
+ * 2) Same-origin /api/device proxy (cloud can only reach public tunnel/public IP)
+ * 3) data: URL connector window — same Wi‑Fi, bypasses HTTPS mixed-content
+ *    (typing IP in the address bar works; that is what the connector reuses)
  */
-export function useDeviceHashrate(enabled: boolean) {
+export function useDeviceHashrate(enabled: boolean, clientId = "default") {
   const [ip, setIpState] = useState(() =>
     typeof window !== "undefined" ? getStoredDeviceIp() : "auto"
   );
@@ -66,10 +77,19 @@ export function useDeviceHashrate(enabled: boolean) {
   const [status, setStatus] = useState<
     "idle" | "connecting" | "online" | "offline"
   >("idle");
+  /** Popup blocked → show manual open/download */
+  const [needConnectorClick, setNeedConnectorClick] = useState(false);
+  const [needBookmarklet, setNeedBookmarklet] = useState(false);
+  const [connectorIp, setConnectorIp] = useState("");
   const lastGood = useRef<DeviceInfo | null>(null);
   const busy = useRef(false);
   const ipRef = useRef(ip);
   const didBoot = useRef(false);
+  const clientIdRef = useRef(clientId);
+
+  useEffect(() => {
+    clientIdRef.current = clientId;
+  }, [clientId]);
 
   useEffect(() => {
     ipRef.current = ip;
@@ -119,12 +139,86 @@ export function useDeviceHashrate(enabled: boolean) {
     setDevice(info);
     setError(null);
     setStatus("online");
+    setNeedConnectorClick(false);
+    setNeedBookmarklet(false);
     // Remember real LAN IP for display
     if (info.ip && isPrivateIPv4(String(info.ip).replace(/:\d+$/, ""))) {
-      /* keep ipRef as auto on cloud; draft may update in UI */
+      const clean = String(info.ip).replace(/:\d+$/, "");
+      if (ipRef.current === "auto" || !ipRef.current) {
+        setStoredDeviceIp(clean);
+        setIpState(clean);
+        ipRef.current = clean;
+      }
     }
     return info;
   }, []);
+
+  const launchConnector = useCallback((rawIp: string) => {
+    const host = normalizeDeviceHost(rawIp) || rawIp.trim();
+    if (!host || host === "auto") return false;
+    setConnectorIp(host);
+    // Open miner home (same as typing IP in address bar) + connector reader
+    openMinerHome(host);
+    const w = openDeviceConnector({
+      ip: host,
+      clientId: clientIdRef.current || "default",
+    });
+    if (!w) {
+      setNeedConnectorClick(true);
+      setNeedBookmarklet(true);
+      setError(
+        "팝업 차단 또는 CORS — 「연동 창 열기」또는 기기 홈에서 북마크릿 실행"
+      );
+      return false;
+    }
+    setNeedConnectorClick(false);
+    setNeedBookmarklet(true);
+    setError(
+      "연동 중… 연동 창을 유지하세요. 실패 시 기기 홈 탭에서 북마크릿을 실행하세요."
+    );
+    setStatus("connecting");
+    return true;
+  }, []);
+
+  const copyBookmarklet = useCallback(async () => {
+    const js = buildMinerBookmarklet(clientIdRef.current || "default");
+    try {
+      await navigator.clipboard.writeText(js);
+      setError(
+        "연동코드 복사됨 → 기기 홈 탭 주소창에 붙여넣고 Enter (주소창에 IP 연 그 탭)"
+      );
+      return true;
+    } catch {
+      setError("복사 실패 — 아래 북마크릿 링크를 길게 눌러 북마크에 추가");
+      return false;
+    }
+  }, []);
+
+  // Receive live board stats from the connector / bookmarklet (postMessage)
+  useEffect(() => {
+    if (!enabled || typeof window === "undefined") return;
+    const onMsg = (ev: MessageEvent) => {
+      const data = ev.data;
+      if (!data || typeof data !== "object") return;
+      if ((data as { type?: string }).type !== DEVICE_MSG) return;
+      const info = deviceInfoFromMessage(data);
+      if (info) {
+        applyOk(info);
+        return;
+      }
+      const err = (data as { ok?: boolean; error?: string }).error;
+      if (err) {
+        setNeedBookmarklet(true);
+        setError(String(err));
+        setStatus("offline");
+      }
+      if ((data as { needBookmarklet?: boolean }).needBookmarklet) {
+        setNeedBookmarklet(true);
+      }
+    };
+    window.addEventListener("message", onMsg);
+    return () => window.removeEventListener("message", onMsg);
+  }, [enabled, applyOk]);
 
   const applyFail = useCallback((target: string, errMsg: string) => {
     setError(errMsg);
@@ -270,18 +364,23 @@ export function useDeviceHashrate(enabled: boolean) {
           }
         }
 
-        if (isCloudHostedPage()) {
-          const privateAttempt =
-            !isAuto &&
-            isPrivateIPv4(primary.replace(/:\d+$/, "").replace(/^https?:\/\//i, ""));
-          if (privateAttempt && typeof window !== "undefined" && window.location.protocol === "https:") {
-            lastErr =
-              "HTTPS에서는 집 LAN IP 직접 접속이 막힘 · 같은 Wi‑Fi에서 접속하거나 공개 터널(https://…) URL 입력 · 해시/엔진은 지갑+풀만으로 이미 실시간";
-          } else {
-            lastErr =
-              lastErr ||
-              "보드 미연결 · 같은 Wi‑Fi LAN IP 또는 공개 HTTPS 터널 URL · 해시/엔진은 지갑+풀만으로 동작 (설치 불필요)";
+        // HTTPS site cannot fetch private HTTP IP (mixed content).
+        // Launch connector window = same idea as typing IP in the address bar.
+        if (!isAuto && isMixedContentBlockLikely(primary)) {
+          const opened = launchConnector(primary);
+          lastErr =
+            lastErr ||
+            "브라우저가 HTTPS→HTTP 기기 직접 읽기를 막음 → 연동 창으로 연결 시도 중";
+          if (opened) {
+            setStatus("connecting");
+            setError(lastErr);
+            // Wait for postMessage from connector — do not mark hard fail yet
+            return lastGood.current;
           }
+        } else if (isCloudHostedPage()) {
+          lastErr =
+            lastErr ||
+            "보드 미연결 · 같은 Wi‑Fi에서 LAN IP 입력 후 연결(연동 창) · 또는 공개 HTTPS 터널";
         }
 
         return applyFail(primary, lastErr || "기기 연결 실패");
@@ -289,7 +388,7 @@ export function useDeviceHashrate(enabled: boolean) {
         busy.current = false;
       }
     },
-    [applyFail, applyOk]
+    [applyFail, applyOk, launchConnector]
   );
 
   const connect = useCallback(
@@ -308,12 +407,47 @@ export function useDeviceHashrate(enabled: boolean) {
       // Instant UI feedback
       setStatus("connecting");
       setError(null);
+      setNeedConnectorClick(false);
       busy.current = false;
       setIp(v);
-      return fetchDevice(v, true);
+
+      // Fast path: on HTTPS + private LAN IP, open connector immediately
+      // (address-bar style access) while also racing normal paths.
+      if (v !== "auto" && isMixedContentBlockLikely(v)) {
+        launchConnector(v);
+      }
+
+      const result = await fetchDevice(v, true);
+      if (result && (result.hashRateGhs > 0 || result.online)) return result;
+
+      // Still offline after races — ensure connector is open for LAN
+      if (v !== "auto" && isMixedContentBlockLikely(v) && !lastGood.current) {
+        launchConnector(v);
+      }
+      return result;
     },
-    [setIp, fetchDevice]
+    [setIp, fetchDevice, launchConnector]
   );
+
+  const openConnectorManual = useCallback(() => {
+    const host =
+      connectorIp ||
+      (ipRef.current && ipRef.current !== "auto" ? ipRef.current : "");
+    if (!host) {
+      setError("먼저 기기 IP를 입력하세요");
+      return;
+    }
+    const ok = launchConnector(host);
+    if (!ok) {
+      downloadDeviceConnector({
+        ip: host,
+        clientId: clientIdRef.current || "default",
+      });
+      setError(
+        "연동 HTML 다운로드됨 · 파일 열어두면 보드→소스엔진 연동됩니다"
+      );
+    }
+  }, [connectorIp, launchConnector]);
 
   /**
    * Fast auto-scan:
@@ -471,13 +605,28 @@ export function useDeviceHashrate(enabled: boolean) {
     setIp,
     hasDevice,
     status,
+    needConnectorClick,
+    needBookmarklet,
+    connectorIp,
+    openConnectorManual,
+    copyBookmarklet,
+    bookmarkletHref: buildMinerBookmarklet(clientId || "default"),
+    openMinerHome: () => {
+      const host =
+        connectorIp ||
+        (ipRef.current && ipRef.current !== "auto" ? ipRef.current : "");
+      if (host) openMinerHome(host);
+    },
+    launchConnector,
     refresh: () => {
       busy.current = false;
-      return fetchDevice(isCloudHostedPage() ? "auto" : undefined, true);
+      // Prefer remembered IP; don't force auto on cloud (that kills LAN path)
+      return fetchDevice(undefined, true);
     },
     connect,
     scanLan,
     hasLiveHashrate: !!(device?.online && (liveHs > 0 || liveGhs > 0)),
+    // Treat connector stream as live even if ghs briefly 0 but online+temp
     isLivePoll: !!(device?.live && device?.online),
     isCloud: typeof window !== "undefined" ? isCloudHostedPage() : false,
   };

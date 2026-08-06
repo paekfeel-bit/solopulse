@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import QRCode from "qrcode";
 import { copyText, LIGHTNING_TIP_ADDRESS } from "@/lib/clipboard";
 import { useI18n } from "@/lib/i18n";
@@ -24,7 +25,7 @@ const styles: Record<Variant, string> = {
 
 const AMOUNTS = [100, 1000, 5000, 21000] as const;
 
-/** Tap → copy Lightning address + open invoice QR modal. */
+/** Tap → copy Lightning address + open invoice QR modal (portal, never clipped). */
 export function LightningTip({
   variant = "header",
   className = "",
@@ -40,7 +41,22 @@ export function LightningTip({
   const [qrDataUrl, setQrDataUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  const [mounted, setMounted] = useState(false);
   const lock = useRef(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Lock body scroll while modal open
+  useEffect(() => {
+    if (!open) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [open]);
 
   const sponsor =
     locale === "ko" ? "개발자 후원주소" : locale === "ja" ? "開発者支援" : "Dev tip address";
@@ -48,7 +64,7 @@ export function LightningTip({
   const makeQr = useCallback(async (payload: string) => {
     try {
       const url = await QRCode.toDataURL(payload, {
-        width: 240,
+        width: 280,
         margin: 2,
         color: { dark: "#18181b", light: "#ffffff" },
         errorCorrectionLevel: "M",
@@ -80,7 +96,6 @@ export function LightningTip({
           setBolt11(j.bolt11);
           await makeQr(j.bolt11);
         } else {
-          // Fallback: QR of lightning address (wallets that support LN address scan)
           setErr(j.error || "Invoice unavailable");
           const fallback = j.fallback || LIGHTNING_TIP_ADDRESS;
           setBolt11(null);
@@ -130,127 +145,149 @@ export function LightningTip({
       : "✓ Copied"
     : LIGHTNING_TIP_ADDRESS;
 
-  const modal = open ? (
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm"
-      role="dialog"
-      aria-modal
-      aria-label={locale === "ko" ? "라이트닝 후원 인보이스" : "Lightning tip invoice"}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) setOpen(false);
-      }}
-    >
-      <div className="w-full max-w-sm rounded-2xl border border-amber-500/40 bg-[var(--card)] text-[var(--fg)] shadow-2xl p-4 space-y-3">
-        <div className="flex items-start justify-between gap-2">
-          <div>
-            <div className="text-[10px] uppercase tracking-[0.2em] text-amber-500 font-semibold">
-              Lightning · Tip
-            </div>
-            <h3 className="text-sm font-bold mt-0.5">
-              {locale === "ko" ? "개발자 후원" : "Developer tip"}
-            </h3>
-            <p className="text-[10px] font-mono text-[var(--muted)] mt-1 break-all">
-              {LIGHTNING_TIP_ADDRESS}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setOpen(false)}
-            className="text-[var(--muted)] hover:text-[var(--fg)] text-lg leading-none px-1"
-            aria-label="Close"
+  const modal =
+    open && mounted
+      ? createPortal(
+          <div
+            className="fixed inset-0 z-[9999] flex items-end sm:items-center justify-center p-0 sm:p-4 bg-black/70 backdrop-blur-sm"
+            style={{
+              paddingTop: "max(0.75rem, env(safe-area-inset-top))",
+              paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))",
+              paddingLeft: "max(0.75rem, env(safe-area-inset-left))",
+              paddingRight: "max(0.75rem, env(safe-area-inset-right))",
+            }}
+            role="dialog"
+            aria-modal
+            aria-label={
+              locale === "ko" ? "라이트닝 후원 인보이스" : "Lightning tip invoice"
+            }
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setOpen(false);
+            }}
           >
-            ×
-          </button>
-        </div>
-
-        <div className="flex flex-wrap gap-1.5">
-          {AMOUNTS.map((a) => (
-            <button
-              key={a}
-              type="button"
-              onClick={() => setAmountSats(a)}
-              className={`text-[10px] font-mono px-2.5 py-1 rounded-lg border transition ${
-                amountSats === a
-                  ? "border-amber-500 bg-amber-500/20 text-amber-600 dark:text-amber-300"
-                  : "border-[var(--border)] text-[var(--muted)] hover:border-amber-500/50"
-              }`}
+            <div
+              className="w-full max-w-md max-h-[min(92dvh,920px)] overflow-y-auto overscroll-contain rounded-t-2xl sm:rounded-2xl border border-amber-500/40 bg-[var(--card)] text-[var(--fg)] shadow-2xl"
+              style={{ WebkitOverflowScrolling: "touch" }}
             >
-              {a.toLocaleString()} sats
-            </button>
-          ))}
-        </div>
+              <div className="sticky top-0 z-10 flex items-start justify-between gap-2 px-4 pt-4 pb-2 bg-[var(--card)]/95 backdrop-blur border-b border-[var(--border)]">
+                <div className="min-w-0">
+                  <div className="text-[10px] uppercase tracking-[0.2em] text-amber-500 font-semibold">
+                    Lightning · Tip
+                  </div>
+                  <h3 className="text-sm font-bold mt-0.5">
+                    {locale === "ko" ? "개발자 후원" : "Developer tip"}
+                  </h3>
+                  <p className="text-[10px] font-mono text-[var(--muted)] mt-1 break-all">
+                    {LIGHTNING_TIP_ADDRESS}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setOpen(false)}
+                  className="shrink-0 text-[var(--muted)] hover:text-[var(--fg)] text-2xl leading-none px-2 py-1 min-h-[44px] min-w-[44px]"
+                  aria-label="Close"
+                >
+                  ×
+                </button>
+              </div>
 
-        <div className="flex flex-col items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3">
-          {loading && (
-            <div className="h-[200px] w-[200px] flex items-center justify-center">
-              <div className="w-8 h-8 rounded-full border-2 border-amber-500 border-t-transparent animate-spin" />
-            </div>
-          )}
-          {!loading && qrDataUrl && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={qrDataUrl}
-              alt="Lightning invoice QR"
-              width={200}
-              height={200}
-              className="rounded-lg bg-white"
-            />
-          )}
-          {!loading && !qrDataUrl && (
-            <div className="h-[200px] w-[200px] flex items-center justify-center text-xs text-[var(--muted)]">
-              QR —
-            </div>
-          )}
-          <div className="text-[10px] text-center text-[var(--muted)]">
-            {bolt11
-              ? locale === "ko"
-                ? `인보이스 ${amountSats.toLocaleString()} sats · 지갑으로 스캔`
-                : `Invoice ${amountSats.toLocaleString()} sats · scan with wallet`
-              : locale === "ko"
-                ? "주소 QR (인보이스 대체) · 지갑으로 스캔"
-                : "Address QR (fallback) · scan with wallet"}
-          </div>
-          {err && (
-            <div className="text-[9px] text-amber-600 dark:text-amber-400 text-center max-w-full break-words">
-              {err}
-            </div>
-          )}
-        </div>
+              <div className="px-4 pb-5 pt-3 space-y-3">
+                <div className="flex flex-wrap gap-1.5">
+                  {AMOUNTS.map((a) => (
+                    <button
+                      key={a}
+                      type="button"
+                      onClick={() => setAmountSats(a)}
+                      className={`text-[11px] font-mono px-3 py-2 rounded-lg border transition min-h-[40px] ${
+                        amountSats === a
+                          ? "border-amber-500 bg-amber-500/20 text-amber-600 dark:text-amber-300"
+                          : "border-[var(--border)] text-[var(--muted)] hover:border-amber-500/50"
+                      }`}
+                    >
+                      {a.toLocaleString()} sats
+                    </button>
+                  ))}
+                </div>
 
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => void copyInvoice()}
-            className="flex-1 rounded-xl bg-amber-500 text-stone-950 font-bold text-xs py-2.5"
-          >
-            {copied
-              ? locale === "ko"
-                ? "✓ 복사됨"
-                : "✓ Copied"
-              : bolt11
-                ? locale === "ko"
-                  ? "인보이스 복사"
-                  : "Copy invoice"
-                : locale === "ko"
-                  ? "주소 복사"
-                  : "Copy address"}
-          </button>
-          <button
-            type="button"
-            onClick={() => void fetchInvoice(amountSats)}
-            className="rounded-xl border border-[var(--border)] px-3 text-xs text-[var(--muted)]"
-          >
-            {locale === "ko" ? "재발급" : "Refresh"}
-          </button>
-        </div>
-        <p className="text-[9px] text-center text-[var(--muted)] leading-relaxed">
-          {locale === "ko"
-            ? "주소는 클릭 시 자동 복사됩니다. 인보이스는 LNURL-pay로 생성됩니다."
-            : "Address is copied on open. Invoice is created via LNURL-pay."}
-        </p>
-      </div>
-    </div>
-  ) : null;
+                <div className="flex flex-col items-center gap-2 rounded-xl border border-[var(--border)] bg-[var(--bg)] p-4">
+                  {loading && (
+                    <div className="h-[min(52vw,240px)] w-[min(52vw,240px)] max-h-[240px] max-w-[240px] flex items-center justify-center">
+                      <div className="w-8 h-8 rounded-full border-2 border-amber-500 border-t-transparent animate-spin" />
+                    </div>
+                  )}
+                  {!loading && qrDataUrl && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={qrDataUrl}
+                      alt="Lightning invoice QR"
+                      width={240}
+                      height={240}
+                      className="rounded-lg bg-white w-[min(52vw,240px)] h-[min(52vw,240px)] max-w-[240px] max-h-[240px]"
+                    />
+                  )}
+                  {!loading && !qrDataUrl && (
+                    <div className="h-[200px] w-full flex items-center justify-center text-xs text-[var(--muted)]">
+                      QR —
+                    </div>
+                  )}
+                  <div className="text-[11px] text-center text-[var(--muted)] px-1">
+                    {bolt11
+                      ? locale === "ko"
+                        ? `인보이스 ${amountSats.toLocaleString()} sats · 지갑으로 스캔`
+                        : `Invoice ${amountSats.toLocaleString()} sats · scan with wallet`
+                      : locale === "ko"
+                        ? "주소 QR (인보이스 대체) · 지갑으로 스캔"
+                        : "Address QR (fallback) · scan with wallet"}
+                  </div>
+                  {err && (
+                    <div className="text-[10px] text-amber-600 dark:text-amber-400 text-center max-w-full break-words">
+                      {err}
+                    </div>
+                  )}
+                  {bolt11 && (
+                    <p className="text-[9px] font-mono text-[var(--muted)] break-all max-h-16 overflow-y-auto w-full text-center px-1">
+                      {bolt11.slice(0, 48)}…
+                    </p>
+                  )}
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => void copyInvoice()}
+                    className="flex-1 rounded-xl bg-amber-500 text-stone-950 font-bold text-sm py-3 min-h-[48px]"
+                  >
+                    {copied
+                      ? locale === "ko"
+                        ? "✓ 복사됨"
+                        : "✓ Copied"
+                      : bolt11
+                        ? locale === "ko"
+                          ? "인보이스 복사"
+                          : "Copy invoice"
+                        : locale === "ko"
+                          ? "주소 복사"
+                          : "Copy address"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void fetchInvoice(amountSats)}
+                    className="rounded-xl border border-[var(--border)] px-4 text-sm text-[var(--muted)] min-h-[48px]"
+                  >
+                    {locale === "ko" ? "재발급" : "Refresh"}
+                  </button>
+                </div>
+                <p className="text-[10px] text-center text-[var(--muted)] leading-relaxed pb-2">
+                  {locale === "ko"
+                    ? "주소는 클릭 시 자동 복사됩니다. 인보이스는 LNURL-pay로 생성됩니다."
+                    : "Address is copied on open. Invoice is created via LNURL-pay."}
+                </p>
+              </div>
+            </div>
+          </div>,
+          document.body
+        )
+      : null;
 
   if (variant === "header") {
     return (
