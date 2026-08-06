@@ -15,8 +15,26 @@ const CK_POOLS = [
 
 async function fetchJson(url: string, init?: RequestInit) {
   const res = await fetch(url, { cache: "no-store", ...init });
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+  const text = await res.text();
+  const trimmed = (text || "").trim();
+  if (!trimmed) throw new Error(`HTTP ${res.status} empty`);
+  if (trimmed.startsWith("<!") || trimmed.startsWith("<html")) {
+    throw new Error(`HTTP ${res.status} HTML error page (not JSON)`);
+  }
+  let data: unknown;
+  try {
+    data = JSON.parse(trimmed);
+  } catch {
+    throw new Error(`HTTP ${res.status} invalid JSON`);
+  }
+  if (!res.ok) {
+    const err =
+      data && typeof data === "object" && "error" in data
+        ? String((data as { error?: string }).error)
+        : `HTTP ${res.status}`;
+    throw new Error(err);
+  }
+  return data as any;
 }
 
 export async function fetchMiner(
@@ -24,10 +42,10 @@ export async function fetchMiner(
   poolPref = "solo.ckpool.org"
 ): Promise<{ pool: string; user: CkUserStats; fetchedAt: number }> {
   try {
-    const data = await fetchJson(
+    const data = (await fetchJson(
       `/api/miner/${encodeURIComponent(address)}?pool=${encodeURIComponent(poolPref)}`
-    );
-    if (data.error) throw new Error(data.error);
+    )) as any;
+    if (data.error) throw new Error(String(data.error));
     return data;
   } catch {
     /* fall through to client-side */
@@ -41,7 +59,7 @@ export async function fetchMiner(
       `https://corsproxy.io/?${encodeURIComponent(target)}`,
     ]) {
       try {
-        const raw = await fetchJson(url);
+        const raw = (await fetchJson(url)) as any;
         // Re-normalize via API shape is complex client-side — force error to show
         if (raw?.accounting || raw?.workersCount != null) {
           // Minimal map
@@ -82,7 +100,7 @@ export async function fetchMiner(
       `https://api.allorigins.win/raw?url=${encodeURIComponent(target)}`,
     ]) {
       try {
-        const data = await fetchJson(url);
+        const data = (await fetchJson(url)) as any;
         if (data && (data.hashrate1m != null || data.workers != null || data.worker)) {
           return { pool: host, user: data as CkUserStats, fetchedAt: Date.now() };
         }
@@ -96,7 +114,7 @@ export async function fetchMiner(
 
 export async function fetchNetwork(): Promise<NetworkStats & { fetchedAt: number }> {
   try {
-    return await fetchJson("/api/network");
+    return (await fetchJson("/api/network")) as any;
   } catch {
     /* client */
   }
@@ -127,7 +145,7 @@ export async function fetchNetwork(): Promise<NetworkStats & { fetchedAt: number
 export async function fetchLiveBtcPrice(): Promise<number> {
   // Prefer same-origin network bundle (works through Cloudflare tunnel)
   try {
-    const j = await fetchJson(`/api/network?_=${Date.now()}`);
+    const j = (await fetchJson(`/api/network?_=${Date.now()}`)) as any;
     const n = Number(j?.priceUsd);
     if (n > 0) return n;
   } catch {
@@ -135,14 +153,16 @@ export async function fetchLiveBtcPrice(): Promise<number> {
   }
   // Coinbase spot — CORS-friendly direct
   try {
-    const j = await fetchJson("https://api.coinbase.com/v2/prices/BTC-USD/spot");
+    const j = (await fetchJson(
+      "https://api.coinbase.com/v2/prices/BTC-USD/spot"
+    )) as any;
     const n = Number(j?.data?.amount);
     if (n > 0) return n;
   } catch {
     /* fallthrough */
   }
   try {
-    const j = await fetchJson("https://mempool.space/api/v1/prices");
+    const j = (await fetchJson("https://mempool.space/api/v1/prices")) as any;
     const n = Number(j?.USD);
     if (n > 0) return n;
   } catch {
@@ -160,15 +180,17 @@ export async function fetchAddressBlocks(address: string): Promise<{
   }>;
 }> {
   try {
-    return await fetchJson(`/api/address/${encodeURIComponent(address)}`);
+    return (await fetchJson(
+      `/api/address/${encodeURIComponent(address)}`
+    )) as any;
   } catch {
     /* direct */
   }
 
   try {
-    const txs = await fetchJson(
+    const txs = (await fetchJson(
       `https://mempool.space/api/address/${encodeURIComponent(address)}/txs`
-    );
+    )) as any;
     const coinbases = (txs || [])
       .filter((tx: { vin?: Array<{ is_coinbase?: boolean }> }) =>
         tx.vin?.some((v) => v.is_coinbase)

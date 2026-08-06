@@ -121,11 +121,13 @@ export function useDeviceHashrate(enabled: boolean, clientId = "default") {
     }
   }, []);
 
+  // Only probe when user set a real host/tunnel — never bare "auto" (causes HTML 502 spam)
   const hasDevice =
     enabled &&
-    (ip === "auto" ||
-      ip === "bridge" ||
-      normalizeDeviceHost(ip).length > 0);
+    !!ip &&
+    ip !== "auto" &&
+    ip !== "bridge" &&
+    normalizeDeviceHost(ip).length > 0;
 
   const applyOk = useCallback((info: DeviceInfo) => {
     if (info.temp != null && !Number.isFinite(Number(info.temp))) info.temp = null;
@@ -334,7 +336,18 @@ export function useDeviceHashrate(enabled: boolean, clientId = "default") {
                 { cache: "no-store", signal: ac.signal }
               );
               const text = await res.text();
-              const j = JSON.parse(text) as Record<string, unknown>;
+              const trimmed = (text || "").trim();
+              if (!trimmed || trimmed.startsWith("<!") || trimmed.startsWith("<html")) {
+                throw new Error(
+                  `기기 API HTML 오류 HTTP ${res.status} (터널 없거나 업스트림 502)`
+                );
+              }
+              let j: Record<string, unknown>;
+              try {
+                j = JSON.parse(trimmed) as Record<string, unknown>;
+              } catch {
+                throw new Error(`기기 API JSON 파싱 실패 HTTP ${res.status}`);
+              }
               if (res.ok && j.online !== false) {
                 if (typeof j.publicTunnel === "string" && j.publicTunnel) {
                   setStoredTunnel(String(j.publicTunnel));
@@ -381,10 +394,26 @@ export function useDeviceHashrate(enabled: boolean, clientId = "default") {
               { cache: "no-store", signal: ac.signal }
             );
             window.clearTimeout(timer);
-            const j = (await res.json()) as Record<string, unknown>;
-            if (res.ok && j.online !== false) {
+            const text = await res.text();
+            const trimmed = (text || "").trim();
+            if (!trimmed || trimmed.startsWith("<!") || trimmed.startsWith("<html")) {
+              lastErr = `기기 API HTML 오류 HTTP ${res.status}`;
+              continue;
+            }
+            let j: Record<string, unknown>;
+            try {
+              j = JSON.parse(trimmed) as Record<string, unknown>;
+            } catch {
+              lastErr = `기기 API JSON 실패 HTTP ${res.status}`;
+              continue;
+            }
+            if ((res.ok || j.online === true) && j.online !== false && (j.hashRateGhs || j.online)) {
               if (typeof j.publicTunnel === "string" && j.publicTunnel) {
                 setStoredTunnel(String(j.publicTunnel));
+              }
+              if (j.online === false) {
+                lastErr = String(j.error || "offline");
+                continue;
               }
               return applyOk({
                 ...(j as unknown as DeviceInfo),
@@ -423,36 +452,34 @@ export function useDeviceHashrate(enabled: boolean, clientId = "default") {
   const connect = useCallback(
     async (rawIp: string) => {
       let v = normalizeDeviceHost(rawIp) || rawIp.trim();
-      if (!v) v = "auto";
-      if (v.toLowerCase() === "bridge") v = "auto";
-      if (v !== "auto" && !isValidDeviceHost(v)) {
-        if (v.toLowerCase() !== "auto") {
-          setError("허용되지 않는 주소 — auto / LAN IP / trycloudflare URL");
-          setStatus("offline");
-          return null;
-        }
-        v = "auto";
+      if (!v || v.toLowerCase() === "auto" || v.toLowerCase() === "bridge") {
+        setIp("");
+        setError(null);
+        setStatus("idle");
+        setDevice(null);
+        return null;
       }
-      // Instant UI feedback
+      if (!isValidDeviceHost(v)) {
+        setError("허용 주소: LAN IP 또는 https://….trycloudflare.com 터널");
+        setStatus("offline");
+        return null;
+      }
       setStatus("connecting");
       setError(null);
       setNeedConnectorClick(false);
       busy.current = false;
       setIp(v);
 
-      // Silent only: proxy / browser direct. NEVER open popups or navigate.
-      // (about:blank spam was launchConnector on every Connect click.)
+      // Silent only: proxy / browser direct. NEVER open popups.
       const result = await fetchDevice(v, true);
       if (result && (result.online || result.hashRateGhs > 0)) return result;
 
-      if (v !== "auto" && isMixedContentBlockLikely(v)) {
-        setNeedConnectorClick(false);
-        setNeedBookmarklet(false);
+      if (isMixedContentBlockLikely(v)) {
         setError(
-          "브라우저 보안: HTTPS 사이트는 집 LAN IP(HTTP)를 읽을 수 없음. 해시·엔진은 지갑+풀로 동작. 보드 온도는 공개 HTTPS 터널 또는 집 PC 브리지(선택)만 가능."
+          "LAN IP는 같은 Wi‑Fi에서만 가능. 모바일/외부에서는 풀 해시가 정확 기준 · 보드는 공개 HTTPS 터널 URL"
         );
-        setStatus("offline");
       }
+      setStatus("offline");
       return result;
     },
     [setIp, fetchDevice]

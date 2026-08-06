@@ -141,7 +141,15 @@ export function useAgentTelemetry(enabled = true, clientId = "default") {
           }
         }
         if (!res?.ok) continue;
-        const j = (await res.json()) as AgentSnapshot;
+        let j: AgentSnapshot;
+        try {
+          const text = await res.text();
+          const t = (text || "").trim();
+          if (!t || t.startsWith("<!") || t.startsWith("<html")) continue;
+          j = JSON.parse(t) as AgentSnapshot;
+        } catch {
+          continue;
+        }
         const ghs = Number(j.telemetry?.hashRateGhs) || 0;
         const at = Number(j.telemetry?.collectedAt) || Number(j.updatedAt) || 0;
         if (!best) {

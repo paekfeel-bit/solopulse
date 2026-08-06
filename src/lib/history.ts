@@ -177,16 +177,28 @@ export function isValidDeviceHost(host: string): boolean {
   return false;
 }
 
+/**
+ * Empty string = pool-only (no board probe).
+ * Do NOT coerce empty → "auto" (auto hits /api/device and can 502 HTML).
+ */
 export function getStoredDeviceIp(): string {
-  if (typeof window === "undefined") return DEFAULT_DEVICE_IP;
+  if (typeof window === "undefined") return "";
   const v = lsGet(DEVICE_IP_KEY);
-  if (v === null || v.trim() === "") return DEFAULT_DEVICE_IP;
-  const n = normalizeDeviceHost(v);
-  return n || DEFAULT_DEVICE_IP;
+  if (v === null || v.trim() === "" || v === "undefined") return "";
+  // Legacy: treat bare "auto" as empty (pool-only) unless user re-applies
+  if (v.trim().toLowerCase() === "auto" || v.trim().toLowerCase() === "bridge") {
+    return "";
+  }
+  return normalizeDeviceHost(v) || v.trim();
 }
 
 export function setStoredDeviceIp(ip: string) {
-  lsSet(DEVICE_IP_KEY, normalizeDeviceHost(ip));
+  const n = normalizeDeviceHost(ip);
+  if (!n || n.toLowerCase() === "auto" || n.toLowerCase() === "bridge") {
+    lsDel(DEVICE_IP_KEY);
+    return;
+  }
+  lsSet(DEVICE_IP_KEY, n);
 }
 
 export function clearStoredDeviceIp() {

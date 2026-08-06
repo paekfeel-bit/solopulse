@@ -35,17 +35,26 @@ export interface DashboardState {
   refresh: () => Promise<void>;
 }
 
+async function parseResJson(res: Response): Promise<Record<string, unknown> | null> {
+  try {
+    const text = await res.text();
+    const t = (text || "").trim();
+    if (!t || t.startsWith("<!") || t.startsWith("<html")) return null;
+    return JSON.parse(t) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
 async function loadMiner(address: string, poolPref: string, bust: string) {
   try {
     const res = await fetch(
       `/api/miner/${encodeURIComponent(address)}?pool=${encodeURIComponent(poolPref)}&${bust}`,
       { cache: "no-store", headers: { "Cache-Control": "no-cache" } }
     );
-    if (res.ok) {
-      const j = await res.json();
-      if (j.user) return j;
-      if (j.error) throw new Error(j.error);
-    }
+    const j = await parseResJson(res);
+    if (j && j.user) return j;
+    if (j && j.error) throw new Error(String(j.error));
   } catch {
     /* fallback */
   }
@@ -58,10 +67,8 @@ async function loadNetwork(bust: string) {
       cache: "no-store",
       headers: { "Cache-Control": "no-cache" },
     });
-    if (res.ok) {
-      const j = await res.json();
-      if (!j.error) return j;
-    }
+    const j = await parseResJson(res);
+    if (j && !j.error) return j;
   } catch {
     /* */
   }
@@ -74,7 +81,8 @@ async function loadAddr(address: string, bust: string) {
       cache: "no-store",
       headers: { "Cache-Control": "no-cache" },
     });
-    if (res.ok) return res.json();
+    const j = await parseResJson(res);
+    if (j) return j;
   } catch {
     /* */
   }
@@ -251,18 +259,24 @@ export function useMinerDashboard(address: string | null): DashboardState {
     if (!address || addrInFlight.current) return;
     addrInFlight.current = true;
     try {
-      const addrJson = await loadAddr(address, `_=${Date.now()}`);
-      const blocks = addrJson.blocks || [];
+      const addrJson = (await loadAddr(address, `_=${Date.now()}`)) as any;
+      const blocks = (addrJson?.blocks || []) as Array<{
+        txid?: string;
+        height?: number | null;
+        valueSats?: number;
+      }>;
       if (blocks.length > 0) {
         const latest = blocks[0];
         if (latest?.txid && !wasBlockCelebrated(latest.txid)) {
           markBlockCelebrated(latest.txid);
+          const height = latest.height ?? null;
+          const valueSats = Number(latest.valueSats) || 0;
           setCelebration({
             txid: latest.txid,
-            height: latest.height,
-            valueSats: latest.valueSats,
+            height,
+            valueSats,
           });
-          notifyBlockFound(latest.height, latest.valueSats);
+          notifyBlockFound(height, valueSats);
         }
       }
     } catch {

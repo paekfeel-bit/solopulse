@@ -26,7 +26,7 @@ export default {
         public: publicOrigin,
         board: "service:solopulse-api",
         hasApiBinding: !!env.BOARD_API,
-        version: "edge-service-bind-5",
+        version: "edge-service-bind-6",
       });
     }
 
@@ -83,6 +83,12 @@ async function forwardUi(request, origin, url, publicOrigin) {
   try {
     res = await fetch(target, init);
   } catch (e) {
+    if (url.pathname.startsWith("/api/")) {
+      return json(
+        { ok: false, online: false, error: "ui origin down", detail: String(e) },
+        502
+      );
+    }
     return json({ ok: false, error: "ui origin down", detail: String(e) }, 502);
   }
 
@@ -90,9 +96,53 @@ async function forwardUi(request, origin, url, publicOrigin) {
   out.delete("content-encoding");
   out.delete("content-length");
   out.delete("content-security-policy");
-  out.set("x-solopulse-edge", "service-bind-5");
+  out.set("x-solopulse-edge", "service-bind-6");
 
   const type = (out.get("content-type") || "").toLowerCase();
+  // API must never return HTML (CF/origin 502 pages break client JSON.parse)
+  if (url.pathname.startsWith("/api/")) {
+    const text = await res.text();
+    const trimmed = (text || "").trim();
+    if (
+      !trimmed ||
+      trimmed.startsWith("<!") ||
+      trimmed.startsWith("<html") ||
+      type.includes("text/html")
+    ) {
+      return json(
+        {
+          ok: false,
+          online: false,
+          error:
+            res.status === 502
+              ? "upstream 502 — board tunnel unavailable (pool monitor still works)"
+              : `API returned non-JSON (HTTP ${res.status})`,
+          status: res.status,
+        },
+        // 200 with JSON so browser clients can always parse
+        200
+      );
+    }
+    try {
+      JSON.parse(trimmed);
+    } catch {
+      return json(
+        {
+          ok: false,
+          online: false,
+          error: `invalid JSON from origin HTTP ${res.status}`,
+        },
+        200
+      );
+    }
+    out.set("content-type", "application/json; charset=utf-8");
+    out.set("cache-control", "no-store");
+    return new Response(trimmed, {
+      status: res.status >= 500 ? 200 : res.status,
+      headers: out,
+    });
+  }
+
   if (type.includes("text/html")) {
     let html = await res.text();
     html = html.split(origin).join(publicOrigin);
