@@ -7,6 +7,7 @@ export type AgentStatus =
   | "CONNECTING"
   | "CONNECTED"
   | "STREAMING"
+  | "LAST_KNOWN"
   | "RECONNECTING"
   | "DEVICE_OFFLINE"
   | "AGENT_OFFLINE"
