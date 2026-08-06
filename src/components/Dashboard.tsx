@@ -16,18 +16,20 @@ import {
   loadHistory,
   getStoredPool,
   setStoredPool,
+  getStoredDeviceIp,
+  setStoredDeviceIp,
   rememberLastAddress,
+  normalizeDeviceHost,
 } from "@/lib/history";
 import { POOL_OPTIONS } from "@/lib/pools";
 import { useLiveOdds } from "@/hooks/useLiveOdds";
+import { useDeviceHashrate } from "@/hooks/useDeviceHashrate";
+import { useAgentTelemetry } from "@/hooks/useAgentTelemetry";
 import { useOnlineStatus } from "@/hooks/useOnlineStatus";
 import { useI18n, localeButtonLabel, localeExitLabel } from "@/lib/i18n";
 import { useTheme } from "@/lib/theme";
-import {
-  notifyBlockFound,
-  wasBlockCelebrated,
-  markBlockCelebrated,
-} from "@/lib/notify";
+import { pickDisplayHashrate } from "@/lib/hashrate";
+import { parseDeviceTarget } from "@/lib/deviceClient";
 import { StatCard } from "./StatCard";
 import { LiveOddsPanel } from "./LiveOddsPanel";
 import { SoloCasePanel } from "./SoloCasePanel";
@@ -62,13 +64,22 @@ export function Dashboard({ address, onLogout }: Props) {
   const { t, cycleLocale, locale } = useI18n();
   const { theme, toggle } = useTheme();
   const dash = useMinerDashboard(address);
-  /** Pool-only product: no board IP / temp / bridge UI. */
+  /**
+   * Mining monitor from ANY internet = pool API (works on mobile data).
+   * Optional board: public HTTPS tunnel URL, or agent stream if home PC bridge is on.
+   * Private LAN IP only works on same Wi‑Fi (browser limit) — never required.
+   */
+  const deviceHr = useDeviceHashrate(true, address);
+  const agent = useAgentTelemetry(true, address);
   const [tab, setTab] = useState<DashTab>("home");
   const [celebrateOpen, setCelebrateOpen] = useState(true);
   const [localHistory, setLocalHistory] = useState(() => loadHistory(address));
   const [nowTick, setNowTick] = useState(() => Date.now());
-  const prevFound = useRef<number | null>(null);
-  /** Adaptive hashrate gauge peak (pool). */
+  const [boardHostDraft, setBoardHostDraft] = useState(() =>
+    typeof window !== "undefined" ? getStoredDeviceIp() || "" : ""
+  );
+  const [boardBusy, setBoardBusy] = useState(false);
+  /** Adaptive hashrate gauge peak. */
   const [gaugePeakGhs, setGaugePeakGhs] = useState(0);
 
   // 1s UI clock — age labels + force re-read of sticky age
@@ -90,26 +101,51 @@ export function Dashboard({ address, onLogout }: Props) {
     return selectStableHashrate(dash.user);
   }, [dash.user]);
 
-  /**
-   * POOL-ONLY ground truth:
-   * Wallet + pool API → hashrate, shares, source engine, odds.
-   * No board IP / temperature / bridge required.
-   */
+  /** Pool 1m preferred — works from mobile data / any network */
   const poolHsLive =
     poolHr.displayHs || poolHr.instantHs || poolHr.stableHs || 0;
-  const shownHs = poolHsLive;
-  const engineHs = poolHsLive > 0 ? poolHsLive : 0;
-  const miningLive = engineHs > 0;
-  const hrSource = "pool" as const;
-  const boardLive = false;
+  const poolWindowLabel =
+    poolHr.raw.m1 > 0 ? "1m" : poolHr.source === "blend" ? "5m" : poolHr.source;
 
-  // Connection light = pool/API health only
+  const deviceHsLive = (() => {
+    if (agent.hasLiveHashrate && agent.hashRateHs > 0) return agent.hashRateHs;
+    if (agent.hasLiveHashrate && agent.hashRateGhs > 0)
+      return agent.hashRateGhs * 1e9;
+    if (
+      agent.telemetry &&
+      agent.staleMs < 300_000 &&
+      (agent.hashRateHs > 0 || agent.hashRateGhs > 0)
+    ) {
+      return agent.hashRateHs > 0
+        ? agent.hashRateHs
+        : agent.hashRateGhs * 1e9;
+    }
+    const d = deviceHr.device;
+    if (!d || !d.online) return 0;
+    const ghs = Number(d.hashRateGhs);
+    if (Number.isFinite(ghs) && ghs > 0) return ghs * 1e9;
+    const hs = Number(d.hashRateHs);
+    return Number.isFinite(hs) && hs > 0 ? hs : 0;
+  })();
+  const boardLive = deviceHsLive > 0;
+  const picked = pickDisplayHashrate({
+    deviceOnline: boardLive,
+    deviceHs: deviceHsLive,
+    poolStableHs: poolHsLive,
+  });
+  /** Board if available, else pool — both feed source engine */
+  const shownHs = picked.hs;
+  const engineHs = boardLive ? deviceHsLive : poolHsLive > 0 ? poolHsLive : 0;
+  const miningLive = engineHs > 0;
+  const hrSource = boardLive ? ("device" as const) : ("pool" as const);
+
+  // Connection light = pool health (any internet)
   const heartbeatOk =
     dash.loading && !dash.user
       ? null
       : dash.error && !dash.user
         ? false
-        : !dash.error || !!dash.user || shownHs > 0 || poolHr.displayHs > 0;
+        : !dash.error || !!dash.user || poolHsLive > 0 || miningLive;
   const { status } = useOnlineStatus(heartbeatOk);
 
   const bestForLadder = Number(dash.user?.bestshare || 0);
@@ -156,7 +192,6 @@ export function Dashboard({ address, onLogout }: Props) {
   // Reset chart when address changes
   useEffect(() => {
     setLocalHistory(loadHistory(address));
-    prevFound.current = null;
   }, [address]);
 
   useEffect(() => {
@@ -189,8 +224,53 @@ export function Dashboard({ address, onLogout }: Props) {
   }
 
   async function handleRefresh() {
-    await dash.refresh();
+    await Promise.all([
+      dash.refresh(),
+      agent.refresh(),
+      deviceHr.hasDevice ? deviceHr.refresh() : Promise.resolve(),
+    ]);
   }
+
+  async function handleBoardHostApply() {
+    const raw = boardHostDraft.trim();
+    setBoardBusy(true);
+    try {
+      if (!raw) {
+        setStoredDeviceIp("");
+        deviceHr.setIp("");
+        return;
+      }
+      const host = normalizeDeviceHost(raw) || raw;
+      setStoredDeviceIp(host);
+      setBoardHostDraft(host);
+      // Silent check only — no popups / navigation
+      await deviceHr.connect(host);
+      await agent.refresh();
+    } finally {
+      setBoardBusy(false);
+    }
+  }
+
+  const boardHostHint = (() => {
+    const raw = boardHostDraft.trim();
+    if (!raw) {
+      return locale === "ko"
+        ? "비워두면 풀만 사용 (모바일 데이터 OK). 보드 실측은 https:// 공개 터널 URL 권장."
+        : "Empty = pool only (mobile data OK). For board stats use a public https:// tunnel URL.";
+    }
+    const t = parseDeviceTarget(raw);
+    if (t?.privateLan) {
+      return locale === "ko"
+        ? "사설 LAN IP는 같은 Wi‑Fi에서만 가능. 모바일 데이터에서는 풀 수치가 정확 기준입니다."
+        : "Private LAN IP only on same Wi‑Fi. On mobile data, pool figures are the accurate baseline.";
+    }
+    if (t && !t.privateLan) {
+      return locale === "ko"
+        ? "공개 터널/URL — 어느 인터넷에서도 보드 실측 시도"
+        : "Public tunnel/URL — board stats from any network";
+    }
+    return locale === "ko" ? "주소 형식 확인" : "Check address format";
+  })();
 
   // Adaptive hashrate gauge peak from pool
   useEffect(() => {
@@ -349,7 +429,7 @@ export function Dashboard({ address, onLogout }: Props) {
               className="engine-scan pointer-events-none absolute inset-x-0 z-10 h-14 bg-gradient-to-b from-transparent via-amber-500/12 to-transparent"
               aria-hidden
             />
-        {/* Mining contact — pool only */}
+        {/* Mining contact — works on mobile data via pool */}
         <div
           className={`relative z-[1] rounded-xl border px-3 py-2.5 flex items-center gap-2.5 ${
             miningLive
@@ -370,11 +450,15 @@ export function Dashboard({ address, onLogout }: Props) {
           <div className="min-w-0 text-[11px] font-mono leading-snug">
             {miningLive
               ? locale === "ko"
-                ? `채굴 모니터링 LIVE · ${(poolHsLive / 1e12).toFixed(2)} TH/s · 풀 · 소스엔진 ON`
-                : `MINING LIVE · ${(poolHsLive / 1e12).toFixed(2)} TH/s · pool · source engine ON`
+                ? `채굴 LIVE · ${formatHashrateGhs(engineHs, 2)} · ${
+                    hrSource === "device" ? "보드" : `풀 ${poolWindowLabel}`
+                  } · 소스엔진 ON · 어디서나`
+                : `MINING LIVE · ${formatHashrateGhs(engineHs, 2)} · ${
+                    hrSource === "device" ? "board" : `pool ${poolWindowLabel}`
+                  } · engine ON · any network`
               : locale === "ko"
-                ? "채굴 신호 없음 · 지갑+풀 확인 · 채굴 중이면 수 분 내 표시"
-                : "No mining signal · check wallet+pool · appears within minutes while mining"}
+                ? "채굴 신호 없음 · 지갑+풀 확인 (모바일 데이터에서도 동일)"
+                : "No mining signal · check wallet+pool (same on mobile data)"}
           </div>
         </div>
 
@@ -395,8 +479,12 @@ export function Dashboard({ address, onLogout }: Props) {
             >
               {miningLive
                 ? locale === "ko"
-                  ? "LIVE · 풀"
-                  : "LIVE · POOL"
+                  ? hrSource === "device"
+                    ? "LIVE · 보드"
+                    : `LIVE · 풀 ${poolWindowLabel}`
+                  : hrSource === "device"
+                    ? "LIVE · BOARD"
+                    : `LIVE · POOL ${poolWindowLabel}`
                 : dash.loading
                   ? "…"
                   : "IDLE"}
@@ -434,12 +522,20 @@ export function Dashboard({ address, onLogout }: Props) {
           <div className="sp-retro-hash-readout mt-2 text-center font-mono text-2xl sm:text-3xl tabular-nums tracking-tight font-bold">
             {shownHs > 0 ? formatHashrateGhs(shownHs, 2) : "—"}
             <span className="text-sm text-amber-700 dark:text-amber-500 ml-2 font-semibold">
-              POOL
+              {hrSource === "device" ? "BOARD" : `POOL ${poolWindowLabel}`}
             </span>
           </div>
-          <div className="sp-retro-meta text-center text-[10px] font-mono mt-1 break-all">
-            pool 1m {u.hashrate1m || "—"} · 5m {u.hashrate5m || "—"} · 1h{" "}
-            {u.hashrate1hr || "—"}
+          <div className="sp-retro-meta text-center text-[10px] font-mono mt-1 break-all space-y-0.5">
+            <div>
+              pool 1m {u.hashrate1m || "—"} · 5m {u.hashrate5m || "—"} · 1h{" "}
+              {u.hashrate1hr || "—"}
+            </div>
+            {boardLive && (
+              <div className="text-emerald-600 dark:text-emerald-400">
+                board {(deviceHsLive / 1e12).toFixed(2)} TH/s ·{" "}
+                {agent.hostIp || deviceHr.device?.ip || "—"}
+              </div>
+            )}
           </div>
         </section>
 
@@ -466,8 +562,57 @@ export function Dashboard({ address, onLogout }: Props) {
               </div>
 
               <div className="text-[10px] font-mono text-[var(--muted)] leading-relaxed break-all">
-                <span className="text-amber-500">POOL</span> 1m {u.hashrate1m || "—"} · 5m{" "}
-                {u.hashrate5m || "—"} · 1h {u.hashrate1hr || "—"} · 1d {u.hashrate1d || "—"}
+                <span className="text-amber-500">POOL</span>{" "}
+                <span className="text-emerald-500/90">1m {u.hashrate1m || "—"}</span>
+                {" · "}5m {u.hashrate5m || "—"} · 1h {u.hashrate1hr || "—"} · 1d{" "}
+                {u.hashrate1d || "—"}
+                <span className="block text-[9px] mt-0.5 text-[var(--muted)]">
+                  {locale === "ko"
+                    ? "표시 기준: 1분 해시 (가장 최근). 5분은 평균이라 더 낮게 보일 수 있음. 모바일 데이터에서도 동일."
+                    : "Headline uses 1m (most recent). 5m is smoother/lower. Same on mobile data."}
+                </span>
+              </div>
+
+              {/* Optional board host — tunnel works off home Wi‑Fi */}
+              <div className="rounded-lg border border-[var(--border)] bg-[var(--bg)] p-2 space-y-1.5">
+                <div className="text-[9px] uppercase tracking-wider text-[var(--muted)] font-semibold">
+                  {locale === "ko"
+                    ? "보드 주소 (선택)"
+                    : "Board host (optional)"}
+                </div>
+                <div className="flex flex-col sm:flex-row gap-1.5">
+                  <input
+                    type="text"
+                    value={boardHostDraft}
+                    onChange={(e) => setBoardHostDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        void handleBoardHostApply();
+                      }
+                    }}
+                    placeholder="https://xxxx.trycloudflare.com 또는 172.x.x.x"
+                    spellCheck={false}
+                    autoComplete="off"
+                    className="flex-1 min-w-0 rounded-lg border border-[var(--border)] bg-[var(--card)] px-2.5 py-2 text-xs font-mono text-[var(--fg)]"
+                  />
+                  <button
+                    type="button"
+                    disabled={boardBusy}
+                    onClick={() => void handleBoardHostApply()}
+                    className="text-[11px] px-3 py-2 rounded-lg font-semibold bg-amber-500 text-stone-950 disabled:opacity-50 shrink-0"
+                  >
+                    {boardBusy ? "…" : locale === "ko" ? "적용" : "Apply"}
+                  </button>
+                </div>
+                <p className="text-[9px] text-[var(--muted)] leading-relaxed">
+                  {boardHostHint}
+                </p>
+                {deviceHr.error && !boardLive && (
+                  <p className="text-[9px] text-amber-600 dark:text-amber-400 font-mono break-words">
+                    {deviceHr.error}
+                  </p>
+                )}
               </div>
 
               <div className="grid grid-cols-2 gap-2 pt-1">
@@ -620,23 +765,35 @@ export function Dashboard({ address, onLogout }: Props) {
                 bestShare={bestForLadder || bestShare}
                 live={miningLive}
                 pDay={liveTick?.display.pDay || 0}
-                confidence={miningLive ? 0.9 : 0.15}
-                agentStatus={miningLive ? "POOL_STREAMING" : "NO_CONTACT"}
+                confidence={
+                  hrSource === "device" ? 0.95 : miningLive ? 0.9 : 0.15
+                }
+                agentStatus={
+                  hrSource === "device"
+                    ? "BOARD_STREAMING"
+                    : miningLive
+                      ? "POOL_STREAMING"
+                      : "NO_CONTACT"
+                }
                 enhanced={engineEnhanced}
               />
             )}
             {!miningLive && (
               <div className="text-[11px] leading-relaxed text-amber-100 bg-amber-950/50 border border-amber-700/50 rounded-xl px-3 py-2.5">
                 {locale === "ko"
-                  ? "⚠ 채굴 신호 없음 — 지갑 주소와 풀을 확인하세요."
-                  : "⚠ No mining signal — check wallet address and pool."}
+                  ? "⚠ 채굴 신호 없음 — 지갑 주소와 풀을 확인하세요. 모바일 데이터에서도 동일."
+                  : "⚠ No mining signal — check wallet + pool. Same on mobile data."}
               </div>
             )}
             {miningLive && (
               <div className="text-[11px] leading-relaxed text-emerald-100 bg-emerald-950/40 border border-emerald-700/40 rounded-xl px-3 py-2.5">
                 {locale === "ko"
-                  ? "✓ 풀 기준 채굴 모니터링 · 소스엔진 가동 중 (설치 없음)"
-                  : "✓ Pool mining monitor · source engine live (no install)"}
+                  ? hrSource === "device"
+                    ? "✓ 보드 실측 해시 · 소스엔진 가동 (터널/에이전트)"
+                    : "✓ 풀 1분 해시 기준 채굴 모니터링 · 어디서나 (모바일 데이터 OK)"
+                  : hrSource === "device"
+                    ? "✓ Board hashrate · source engine (tunnel/agent)"
+                    : "✓ Pool 1m hashrate monitor · any network (mobile data OK)"}
               </div>
             )}
             {difficulty > 0 && (

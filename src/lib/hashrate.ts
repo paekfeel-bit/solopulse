@@ -46,10 +46,13 @@ export function selectStableHashrate(user: CkUserStats): {
   }
 
   const instantHs = m1 > 0 ? m1 : stableHs;
-  // Live UI: 1m when available (tracks closer to board), else stable
-  const displayHs = instantHs > 0 ? instantHs : stableHs;
-  const displaySource: typeof source =
-    m1 > 0 ? "1m" : source;
+  /**
+   * Live monitor headline:
+   * Prefer 1m (closest to "now"). If 1m is missing/zero, fall back to 5m/1h.
+   * Never average down 1m into 5m — that made UI look stuck at ~5.x while 1m was higher.
+   */
+  const displayHs = m1 > 0 ? m1 : stableHs > 0 ? stableHs : 0;
+  const displaySource: typeof source = m1 > 0 ? "1m" : source;
 
   return {
     displayHs,
