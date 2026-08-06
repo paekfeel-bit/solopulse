@@ -7,9 +7,6 @@ const ADDR_KEY = "solopulse:address";
 const LAST_ADDR_KEY = "solopulse:lastAddress";
 const POOL_KEY = "solopulse:pool";
 const DEVICE_IP_KEY = "solopulse:deviceIp";
-/** DHCP changes often — scan will override; keep last known NerdQAxe */
-/** "auto" = use live home bridge tunnel registry (recommended on Vercel) */
-const DEFAULT_DEVICE_IP = "auto";
 
 function lsGet(key: string): string | null {
   if (typeof window === "undefined") return null;

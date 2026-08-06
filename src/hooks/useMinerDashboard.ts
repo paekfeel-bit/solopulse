@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { CkUserStats, HashrateSample, NetworkStats } from "@/lib/types";
@@ -15,9 +15,9 @@ import {
 } from "@/lib/notify";
 import { computeSourceContact } from "@/lib/sourceContact";
 
-/** CKPool / miner stats — live path */
+/** CKPool / miner stats ??live path */
 const MINER_POLL_MS = 2_000;
-/** Network difficulty / price — changes slowly */
+/** Network difficulty / price ??changes slowly */
 const NETWORK_POLL_MS = 12_000;
 /** Coinbase / block payout check */
 const ADDRESS_POLL_MS = 25_000;
@@ -169,8 +169,8 @@ export function useMinerDashboard(address: string | null): DashboardState {
       if (nd > 0 && shouldNotifyBestShare(best, nd)) {
         const pct = ((best / nd) * 100).toFixed(4);
         notify(
-          "SoloPulse — strong share!",
-          `Best share ${best.toExponential(2)} ≈ ${pct}% of network difficulty`,
+          "SoloPulse ??strong share!",
+          `Best share ${best.toExponential(2)} ??${pct}% of network difficulty`,
           "bestshare"
         );
       }
@@ -202,8 +202,8 @@ export function useMinerDashboard(address: string | null): DashboardState {
         if (!sourceNotified.current) {
           sourceNotified.current = true;
           notify(
-            "SoloPulse — 성공 소스 90%+",
-            `Source contact ${contact.overall.toFixed(0)}% — mechanism fully engaged`,
+            "SoloPulse ???깃났 ?뚯뒪 90%+",
+            `Source contact ${contact.overall.toFixed(0)}% ??mechanism fully engaged`,
             "source-90"
           );
         }
@@ -259,6 +259,7 @@ export function useMinerDashboard(address: string | null): DashboardState {
     if (!address || addrInFlight.current) return;
     addrInFlight.current = true;
     try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const addrJson = (await loadAddr(address, `_=${Date.now()}`)) as any;
       const blocks = (addrJson?.blocks || []) as Array<{
         txid?: string;
@@ -328,3 +329,4 @@ export function useMinerDashboard(address: string | null): DashboardState {
     refresh,
   };
 }
+

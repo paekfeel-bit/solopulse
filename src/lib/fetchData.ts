@@ -1,6 +1,7 @@
-/**
+﻿/**
  * Client-side data fetchers with same-origin API (preferred) and CORS fallbacks.
  */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 import type { CkUserStats, NetworkStats } from "./types";
 import { blockSubsidyAtHeight } from "./mining";
@@ -60,7 +61,7 @@ export async function fetchMiner(
     ]) {
       try {
         const raw = (await fetchJson(url)) as any;
-        // Re-normalize via API shape is complex client-side — force error to show
+        // Re-normalize via API shape is complex client-side ??force error to show
         if (raw?.accounting || raw?.workersCount != null) {
           // Minimal map
           const acc = raw.accounting || {};
@@ -151,7 +152,7 @@ export async function fetchLiveBtcPrice(): Promise<number> {
   } catch {
     /* fallthrough */
   }
-  // Coinbase spot — CORS-friendly direct
+  // Coinbase spot ??CORS-friendly direct
   try {
     const j = (await fetchJson(
       "https://api.coinbase.com/v2/prices/BTC-USD/spot"
@@ -220,3 +221,4 @@ export async function fetchAddressBlocks(address: string): Promise<{
 }
 
 export { getPoolOption };
+

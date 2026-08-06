@@ -451,7 +451,7 @@ export function useDeviceHashrate(enabled: boolean, clientId = "default") {
 
   const connect = useCallback(
     async (rawIp: string) => {
-      let v = normalizeDeviceHost(rawIp) || rawIp.trim();
+      const v = normalizeDeviceHost(rawIp) || rawIp.trim();
       if (!v || v.toLowerCase() === "auto" || v.toLowerCase() === "bridge") {
         setIp("");
         setError(null);
