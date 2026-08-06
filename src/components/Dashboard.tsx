@@ -106,10 +106,17 @@ export function Dashboard({ address, onLogout }: Props) {
   }, [dash.user]);
 
   /** Pool 1m preferred — works from mobile data / any network */
+  /** Board-matching pool base (5m/1h blend — not spiky 1m) */
   const poolHsLive =
-    poolHr.displayHs || poolHr.instantHs || poolHr.stableHs || 0;
+    poolHr.stableHs || poolHr.displayHs || poolHr.instantHs || 0;
   const poolWindowLabel =
-    poolHr.raw.m1 > 0 ? "1m" : poolHr.source === "blend" ? "5m" : poolHr.source;
+    poolHr.source === "blend"
+      ? "5m+1h"
+      : poolHr.source === "5m"
+        ? "5m"
+        : poolHr.source === "1hr"
+          ? "1h"
+          : poolHr.source;
 
   const deviceHsLive = (() => {
     if (agent.hasLiveHashrate && agent.hashRateHs > 0) return agent.hashRateHs;
@@ -488,10 +495,10 @@ export function Dashboard({ address, onLogout }: Props) {
           <div className="min-w-0 text-[11px] font-mono leading-snug">
             {miningLive
               ? locale === "ko"
-                ? `채굴 LIVE · ${formatHashrate(shownHs, 3)} · 1초 갱신 · ${
+                ? `채굴 LIVE · ${formatHashrateGhs(shownHs, 1)} · 1초 · ${
                     hrSource === "device" ? "보드" : `풀 ${poolWindowLabel}`
                   } · 소스엔진 ON`
-                : `MINING LIVE · ${formatHashrate(shownHs, 3)} · 1s tick · ${
+                : `MINING LIVE · ${formatHashrateGhs(shownHs, 1)} · 1s · ${
                     hrSource === "device" ? "board" : `pool ${poolWindowLabel}`
                   } · engine ON`
               : locale === "ko"
@@ -561,15 +568,17 @@ export function Dashboard({ address, onLogout }: Props) {
             key={liveTickN}
             className="sp-retro-hash-readout mt-2 text-center font-mono text-2xl sm:text-3xl tabular-nums tracking-tight font-bold transition-opacity duration-300"
           >
-            {shownHs > 0 ? formatHashrate(shownHs, 3) : "—"}
+            {shownHs > 0 ? formatHashrateGhs(shownHs, 1) : "—"}
             <span className="text-sm text-amber-700 dark:text-amber-500 ml-2 font-semibold">
-              LIVE · 1s
+              GH/s · LIVE
             </span>
           </div>
           <div className="sp-retro-meta text-center text-[10px] font-mono mt-1 break-all space-y-0.5">
             <div className="text-emerald-600/90 dark:text-emerald-400/90">
-              {locale === "ko" ? "1초 실시간" : "1s live"} · tick #{liveTickN} ·{" "}
-              {hrSource === "device" ? "BOARD" : `POOL ${poolWindowLabel}`}
+              {locale === "ko"
+                ? `보드와 같은 GH/s 표기 · 기준 풀 ${poolWindowLabel} (1m 스파이크 제외)`
+                : `GH/s like AxeOS · pool ${poolWindowLabel} base (not spiky 1m)`}{" "}
+              · tick #{liveTickN}
             </div>
             <div>
               pool 1m {u.hashrate1m || "—"} · 5m {u.hashrate5m || "—"} · 1h{" "}
@@ -612,14 +621,15 @@ export function Dashboard({ address, onLogout }: Props) {
               </div>
 
               <div className="text-[10px] font-mono text-[var(--muted)] leading-relaxed break-all">
-                <span className="text-amber-500">POOL</span>{" "}
-                <span className="text-emerald-500/90">1m {u.hashrate1m || "—"}</span>
-                {" · "}5m {u.hashrate5m || "—"} · 1h {u.hashrate1hr || "—"} · 1d{" "}
-                {u.hashrate1d || "—"}
+                <span className="text-amber-500">POOL</span> 1m {u.hashrate1m || "—"} ·{" "}
+                <span className="text-emerald-500/90">5m {u.hashrate5m || "—"}</span>
+                {" · "}
+                <span className="text-emerald-500/90">1h {u.hashrate1hr || "—"}</span>
+                {" · "}1d {u.hashrate1d || "—"}
                 <span className="block text-[9px] mt-0.5 text-[var(--muted)]">
                   {locale === "ko"
-                    ? "표시 기준: 1분 해시 (가장 최근). 5분은 평균이라 더 낮게 보일 수 있음. 모바일 데이터에서도 동일."
-                    : "Headline uses 1m (most recent). 5m is smoother/lower. Same on mobile data."}
+                    ? "큰 숫자 = 5분+1시간 안정값(보드 GH/s와 유사). 1분은 순간 스파이크라 높게 나올 수 있음."
+                    : "Headline = 5m+1h stable (matches board GH/s). 1m can spike high."}
                 </span>
               </div>
 

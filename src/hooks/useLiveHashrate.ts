@@ -41,11 +41,12 @@ export function useLiveHashrate(baseHs: number, enabled: boolean) {
       smoothRef.current = smoothed;
       phaseRef.current += 0.85;
       const p = phaseRef.current;
-      // Multi-sine micro pulse (±~1.2%) so 1s UI motion is visible
+      // Tiny pulse only (±~0.35%) so number stays near board (e.g. 4862 GH/s)
+      // but still visibly ticks every second
       const pulse =
-        Math.sin(p) * 0.007 +
-        Math.sin(p * 1.7 + 0.4) * 0.0035 +
-        Math.sin(p * 0.55 + 1.1) * 0.002;
+        Math.sin(p) * 0.002 +
+        Math.sin(p * 1.7 + 0.4) * 0.001 +
+        Math.sin(p * 0.55 + 1.1) * 0.0005;
       const next = Math.max(0, smoothed * (1 + pulse));
       setLiveHs(next);
       setTick((n) => n + 1);

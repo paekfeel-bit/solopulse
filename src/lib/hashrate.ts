@@ -2,11 +2,11 @@ import { parseHashrate } from "./mining";
 import type { CkUserStats } from "./types";
 
 /**
- * Pool hashrate (CKPool) — secondary only when device is offline.
+ * Pool hashrate selection for UI / source engine.
  *
- * - instantHs: prefer 1m (closest to "now" on pool side)
- * - stableHs: 5m (smoother, closer to stats.ckpool.org headline)
- * - displayHs: prefer instant for live UI, fall back to stable
+ * CKPool 1m often spikes (e.g. 6.x T) above AxeOS board instant (~4.86 TH = 4862 GH/s).
+ * Board sustained rate tracks closer to 5m / 1h. Use a board-matching stable blend
+ * for the headline so site number ≈ miner homepage GH/s.
  */
 export function selectStableHashrate(user: CkUserStats): {
   displayHs: number;
@@ -23,20 +23,21 @@ export function selectStableHashrate(user: CkUserStats): {
   let stableHs = 0;
   let source: "1m" | "5m" | "1hr" | "1d" | "blend" = "5m";
 
-  // Smooth pool baseline (5m), light 1h blend only when 5m present
-  if (m5 > 0) {
-    stableHs = m5;
-    source = "5m";
-    if (h1 > 0) {
-      // Cap blend so we never invent spikes far above 5m
-      const blended = m5 * 0.85 + h1 * 0.15;
-      const cap = Math.max(m5, h1) * 1.15;
-      stableHs = Math.min(blended, cap);
-      source = "blend";
-    }
+  /**
+   * Board-matching (AxeOS ~4862 GH/s style):
+   * Pool 1m often spikes high; 1h tracks board sustained best, 5m is secondary.
+   * Cap 5m so short spikes cannot pull headline far above board.
+   */
+  if (h1 > 0 && m5 > 0) {
+    const m5c = Math.min(m5, h1 * 1.08);
+    stableHs = h1 * 0.75 + m5c * 0.25;
+    source = "blend";
   } else if (h1 > 0) {
     stableHs = h1;
     source = "1hr";
+  } else if (m5 > 0) {
+    stableHs = m5;
+    source = "5m";
   } else if (m1 > 0) {
     stableHs = m1;
     source = "1m";
@@ -46,25 +47,20 @@ export function selectStableHashrate(user: CkUserStats): {
   }
 
   const instantHs = m1 > 0 ? m1 : stableHs;
-  /**
-   * Live monitor headline:
-   * Prefer 1m (closest to "now"). If 1m is missing/zero, fall back to 5m/1h.
-   * Never average down 1m into 5m — that made UI look stuck at ~5.x while 1m was higher.
-   */
-  const displayHs = m1 > 0 ? m1 : stableHs > 0 ? stableHs : 0;
-  const displaySource: typeof source = m1 > 0 ? "1m" : source;
+  // Headline stays on stable — never use raw 1m (causes 5–6T vs board 4.86T)
+  const displayHs = stableHs > 0 ? stableHs : instantHs;
 
   return {
     displayHs,
     instantHs,
     stableHs,
-    source: displaySource,
+    source,
     raw: { m1, m5, h1, d1 },
   };
 }
 
 /**
- * DEVICE board is ground truth. Pool only if device unavailable.
+ * DEVICE board is ground truth when online. Pool otherwise.
  */
 export function pickDisplayHashrate(opts: {
   deviceOnline: boolean;
