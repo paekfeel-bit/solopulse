@@ -399,18 +399,17 @@ export function useDeviceHashrate(enabled: boolean, clientId = "default") {
           }
         }
 
-        // HTTPS mixed content: do NOT auto-open windows on background poll.
-        // Only set flags so UI shows 「연동 창 열기」button.
+        // Never open windows here (poll / connect). Honest status only.
         if (!isAuto && isMixedContentBlockLikely(primary)) {
           lastErr =
             lastErr ||
-            "HTTPS→HTTP 직접 읽기 불가 · 「연동 창 열기」를 한 번 누르세요 (자동 이동 없음)";
-          setNeedConnectorClick(true);
-          setNeedBookmarklet(true);
+            "HTTPS→HTTP 차단(브라우저 보안). 보드 직접 연동은 클라우드 웹만으로는 불가 · 풀 데이터는 정상";
+          setNeedConnectorClick(false);
+          setNeedBookmarklet(false);
         } else if (isCloudHostedPage()) {
           lastErr =
             lastErr ||
-            "보드 미연결 · 같은 Wi‑Fi에서 IP 입력 후 「연결」또는 「연동 창 열기」";
+            "보드 미연결 · 공개 HTTPS 터널 URL이거나 집 브리지(선택) 필요 · 풀 해시는 지갑만으로 OK";
         }
 
         return applyFail(primary, lastErr || "기기 연결 실패");
@@ -441,19 +440,22 @@ export function useDeviceHashrate(enabled: boolean, clientId = "default") {
       busy.current = false;
       setIp(v);
 
-      // Try silent paths first (proxy / direct) — no popups, no navigation
+      // Silent only: proxy / browser direct. NEVER open popups or navigate.
+      // (about:blank spam was launchConnector on every Connect click.)
       const result = await fetchDevice(v, true);
       if (result && (result.online || result.hashRateGhs > 0)) return result;
 
-      // User clicked Connect: open connector popup once only (never miner home)
       if (v !== "auto" && isMixedContentBlockLikely(v)) {
-        launchConnector(v, { force: true });
-      } else {
-        setNeedConnectorClick(true);
+        setNeedConnectorClick(false);
+        setNeedBookmarklet(false);
+        setError(
+          "브라우저 보안: HTTPS 사이트는 집 LAN IP(HTTP)를 읽을 수 없음. 해시·엔진은 지갑+풀로 동작. 보드 온도는 공개 HTTPS 터널 또는 집 PC 브리지(선택)만 가능."
+        );
+        setStatus("offline");
       }
       return result;
     },
-    [setIp, fetchDevice, launchConnector]
+    [setIp, fetchDevice]
   );
 
   const openConnectorManual = useCallback(() => {

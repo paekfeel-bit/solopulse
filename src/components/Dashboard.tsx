@@ -807,18 +807,45 @@ export function Dashboard({ address, onLogout }: Props) {
                 {u.hashrate1hr || "—"} / 1d {u.hashrate1d || "—"}
               </div>
 
-              {/* Device connect — IP like address bar → connector → source engine */}
-              <div className="rounded-xl border border-amber-600/40 bg-[var(--bg)] p-2.5 space-y-2">
-                <div className="text-[10px] uppercase tracking-wider text-amber-500 font-semibold">
-                  {locale === "ko"
-                    ? "기기 연결 · IP 입력하면 연동"
-                    : "Device link · enter IP"}
+              {/* Board status — honest LED + optional public tunnel / agent only */}
+              <div className="rounded-xl border border-[var(--border)] bg-[var(--bg)] p-3 space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-[10px] uppercase tracking-wider text-[var(--muted)] font-semibold">
+                    {locale === "ko" ? "보드 상태" : "Board status"}
+                  </div>
+                  <div
+                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold border ${
+                      boardLive
+                        ? "border-emerald-500/50 bg-emerald-500/15 text-emerald-400"
+                        : "border-red-500/40 bg-red-500/10 text-red-400"
+                    }`}
+                    role="status"
+                  >
+                    <span
+                      className={`relative flex h-2.5 w-2.5 ${
+                        boardLive ? "bg-emerald-400" : "bg-red-500"
+                      } rounded-full`}
+                    >
+                      {boardLive && (
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-50" />
+                      )}
+                    </span>
+                    {boardLive
+                      ? locale === "ko"
+                        ? "연동됨 · 온라인"
+                        : "Linked · ONLINE"
+                      : locale === "ko"
+                        ? "보드 오프라인"
+                        : "Board OFFLINE"}
+                  </div>
                 </div>
+
                 <p className="text-[10px] text-[var(--muted)] leading-relaxed">
                   {locale === "ko"
-                    ? "IP 입력 후 연결 → 필요 시 「연동 창 열기」만 사용. 기기 홈페이지로는 자동 이동하지 않습니다. (같은 Wi‑Fi)"
-                    : "Enter IP → Connect. Use “Open link window” only if needed. Never auto-navigates to the device homepage."}
+                    ? "핵심: 지갑+풀이면 해시·소스엔진·확률은 이미 실시간입니다. 보드 온도/LAN 실측만 클라우드 웹에서 막힙니다(브라우저 보안)."
+                    : "Core: wallet+pool already powers live hashrate/engine. Only board temp/LAN stats are blocked by browser security on HTTPS cloud."}
                 </p>
+
                 <div className="flex flex-col sm:flex-row gap-1.5">
                   <input
                     type="text"
@@ -830,166 +857,53 @@ export function Dashboard({ address, onLogout }: Props) {
                         void handleDeviceConnect();
                       }
                     }}
-                    placeholder="172.30.1.33 또는 http://…"
+                    placeholder={
+                      locale === "ko"
+                        ? "선택: https://…터널 또는 LAN IP"
+                        : "Optional: https://tunnel or LAN IP"
+                    }
                     spellCheck={false}
                     autoComplete="off"
                     className="flex-1 min-w-0 rounded-lg border border-[var(--border)] bg-[var(--card)] px-2.5 py-2 text-xs font-mono text-[var(--fg)]"
                   />
-                  <div className="flex gap-1.5 shrink-0">
-                    <button
-                      type="button"
-                      disabled={deviceBusy}
-                      onClick={() => void handleDeviceConnect()}
-                      className="text-[11px] px-3 py-2 rounded-lg font-semibold bg-amber-500 text-stone-950 disabled:opacity-50"
-                    >
-                      {deviceBusy
-                        ? "…"
-                        : locale === "ko"
-                          ? "연결·연동"
-                          : "Connect"}
-                    </button>
-                    <button
-                      type="button"
-                      disabled={deviceBusy}
-                      onClick={() => void handleDeviceScan()}
-                      className="text-[11px] px-3 py-2 rounded-lg font-medium border border-amber-600/60 text-amber-300 disabled:opacity-50"
-                    >
-                      {locale === "ko" ? "자동 검색" : "Scan"}
-                    </button>
-                  </div>
+                  <button
+                    type="button"
+                    disabled={deviceBusy}
+                    onClick={() => void handleDeviceConnect()}
+                    className="text-[11px] px-3 py-2 rounded-lg font-semibold border border-[var(--border)] text-[var(--fg)] disabled:opacity-50 shrink-0"
+                  >
+                    {deviceBusy ? "…" : locale === "ko" ? "확인" : "Check"}
+                  </button>
                 </div>
-                <div className="flex flex-wrap gap-1">
-                  {["172.30.1.33", "172.30.1.70", "172.30.1.56", "192.168.1.45"].map(
-                    (ip) => (
-                      <button
-                        key={ip}
-                        type="button"
-                        onClick={() => {
-                          setDeviceIpDraft(ip);
-                          void (async () => {
-                            setDeviceBusy(true);
-                            try {
-                              await deviceHr.connect(ip);
-                            } finally {
-                              setDeviceBusy(false);
-                            }
-                          })();
-                        }}
-                        className="text-[9px] font-mono px-2 py-0.5 rounded border border-[var(--border)] text-[var(--muted)] hover:text-[var(--fg)]"
-                      >
-                        {ip.split(".").slice(-2).join(".")}
-                      </button>
-                    )
-                  )}
-                </div>
+
                 <div
                   className={`text-[10px] font-mono leading-relaxed break-words ${
-                    agent.hasLiveHashrate || deviceHr.hasLiveHashrate
-                      ? "text-emerald-400"
-                      : deviceHr.status === "connecting" || deviceBusy
-                        ? "text-amber-400"
-                        : "text-[var(--muted)]"
+                    boardLive ? "text-emerald-400" : "text-[var(--muted)]"
                   }`}
                 >
-                  {agent.hasLiveHashrate
-                    ? `STREAMING · agent · ${agent.hostIp || "—"} · ${agent.hashRateGhs.toFixed(1)} GH/s`
-                    : deviceHr.hasLiveHashrate
-                      ? `ONLINE · board · ${deviceHr.device?.ip || deviceHr.ip} · ${(deviceHr.device?.hashRateGhs || 0).toFixed(1)} GH/s · engine ON`
-                      : deviceHr.error
-                        ? `${deviceHr.status === "connecting" ? "연결 중" : "OFFLINE"} · ${deviceHr.error}`
-                        : deviceHr.status === "connecting" || deviceBusy
-                          ? locale === "ko"
-                            ? "확인 중… 연동 창·보드 응답 대기"
-                            : "Checking… connector/board"
-                          : locale === "ko"
-                            ? "IP 입력 → 연결·연동 (같은 Wi‑Fi)"
-                            : "Enter IP → Connect (same Wi‑Fi)"}
+                  {boardLive
+                    ? `● ${(deviceHsLive / 1e9).toFixed(1)} GH/s · ${
+                        agent.hostIp || deviceHr.device?.ip || "—"
+                      }${
+                        (agent.tempC ?? deviceHr.device?.temp) != null
+                          ? ` · ${agent.tempC ?? deviceHr.device?.temp}°C`
+                          : ""
+                      }`
+                    : deviceHr.error
+                      ? `○ ${deviceHr.error}`
+                      : locale === "ko"
+                        ? "○ 보드 미연결 · 채굴 모니터링은 위 풀 컨택으로 동작 중"
+                        : "○ Board offline · mining monitor runs on pool contact above"}
                 </div>
-                {!deviceHr.hasLiveHashrate &&
-                  !agent.hasLiveHashrate &&
-                  (deviceHr.needConnectorClick ||
-                    deviceHr.needBookmarklet ||
-                    deviceHr.status === "connecting" ||
-                    !!deviceHr.error) && (
-                    <div className="space-y-1.5 rounded-lg border border-emerald-700/40 bg-emerald-950/30 p-2">
-                      <p className="text-[10px] text-emerald-100/90 leading-relaxed">
-                        {locale === "ko"
-                          ? "① 기기 홈이 뜨는지 확인 → ② 연동 창 유지 또는 ③ 기기 탭 주소창에 연동코드 붙여넣기(Enter). 성공 시 소스엔진 LIVE."
-                          : "① Confirm device home loads → ② keep link window or ③ paste link code in device tab address bar. Then source engine goes LIVE."}
-                      </p>
-                      <div className="flex flex-wrap gap-1.5">
-                        <button
-                          type="button"
-                          onClick={() => deviceHr.openConnectorManual()}
-                          className="text-[11px] px-3 py-2 rounded-lg font-bold bg-emerald-500 text-stone-950"
-                        >
-                          {locale === "ko" ? "연동 창 열기" : "Open link window"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => deviceHr.openMinerHome()}
-                          className="text-[11px] px-3 py-2 rounded-lg border border-emerald-500/50 text-emerald-200"
-                        >
-                          {locale === "ko" ? "기기 홈 열기" : "Open device home"}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => void deviceHr.copyBookmarklet()}
-                          className="text-[11px] px-3 py-2 rounded-lg border border-amber-500/50 text-amber-200"
-                        >
-                          {locale === "ko"
-                            ? "연동코드 복사"
-                            : "Copy link code"}
-                        </button>
-                        <a
-                          href={deviceHr.bookmarkletHref}
-                          onClick={(e) => {
-                            // Prefer copy on mobile (javascript: often blocked)
-                            e.preventDefault();
-                            void deviceHr.copyBookmarklet();
-                          }}
-                          className="text-[11px] px-3 py-2 rounded-lg border border-[var(--border)] text-[var(--muted)]"
-                          title="Bookmarklet"
-                        >
-                          {locale === "ko" ? "북마크릿" : "Bookmarklet"}
-                        </a>
-                      </div>
-                    </div>
-                  )}
-                <div className="flex flex-wrap gap-1.5">
-                  <button
-                    type="button"
-                    className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border)] text-[var(--muted)]"
-                    onClick={() => void handleRefresh()}
-                  >
-                    {locale === "ko" ? "전체 새로고침" : "Refresh all"}
-                  </button>
-                  <button
-                    type="button"
-                    className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border)] text-[var(--muted)]"
-                    onClick={() => void agent.refresh()}
-                  >
-                    {locale === "ko" ? "Agent 갱신" : "Refresh agent"}
-                  </button>
-                </div>
-              </div>
 
-              {/* Setup UI only while offline — auto-hides when bridge LIVE */}
-              <BridgePanel
-                compact
-                hideWhenLive
-                locale={locale}
-                address={address}
-                boardLive={boardLive}
-                hashRateGhs={
-                  boardLive
-                    ? deviceHsLive / 1e9
-                    : agent.hashRateGhs || 0
-                }
-                hostIp={agent.hostIp || deviceHr.device?.ip || ""}
-                staleMs={deviceAgeMs ?? agent.staleMs}
-                agentStatus={agent.agentStatus}
-              />
+                <button
+                  type="button"
+                  className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border)] text-[var(--muted)]"
+                  onClick={() => void handleRefresh()}
+                >
+                  {locale === "ko" ? "새로고침" : "Refresh"}
+                </button>
+              </div>
 
               <div className="grid grid-cols-2 gap-2 pt-1">
                 <div className="rounded-lg bg-[var(--bg)] border border-[var(--border)] px-2.5 py-2 min-w-0">
@@ -1247,7 +1161,7 @@ export function Dashboard({ address, onLogout }: Props) {
           </div>
         )}
 
-        {/* ===== TAB: bridge (CORE — never removed) ===== */}
+        {/* ===== TAB: board (optional advanced) ===== */}
         {tab === "bridge" && (
           <div className="space-y-3">
             <BridgePanel
@@ -1261,64 +1175,10 @@ export function Dashboard({ address, onLogout }: Props) {
               staleMs={deviceAgeMs ?? agent.staleMs}
               agentStatus={agent.agentStatus}
             />
-            {!boardLive && (
-              <section className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4 space-y-2 text-[11px] text-[var(--muted)] leading-relaxed">
-                <h3 className="text-sm font-semibold text-[var(--fg)]">
-                  {locale === "ko"
-                    ? "기본 경로 vs 보드 상세"
-                    : "Default path vs board detail"}
-                </h3>
-                <p>
-                  {locale === "ko"
-                    ? "지갑+풀만으로 해시·소스엔진·확률이 어디서나 실시간입니다. 보드 온도·LAN 실측은 같은 Wi‑Fi IP, 공개 HTTPS 터널, 또는 (선택) 집 PC 브리지가 있을 때만 추가됩니다. 공개 인터넷에서 집 사설 IP는 물리적으로 닿지 않습니다."
-                    : "Wallet+pool alone powers live hashrate, source engine, and odds from any network. Board temp/LAN stats need same-Wi‑Fi IP, a public HTTPS tunnel, or an optional home bridge. Private home IPs are unreachable from the public internet."}
-                </p>
-                <p className="font-mono text-[10px] text-[var(--muted)] bg-[var(--bg)] rounded-lg p-2">
-                  [Wallet] → [Pool API] → [Source Engine] · optional: [Board IP / Tunnel / Bridge]
-                </p>
-              </section>
-            )}
-            <button
-              type="button"
-              onClick={() => void agent.refresh()}
-              className="w-full rounded-xl bg-amber-500 text-stone-950 font-bold text-sm py-3"
-            >
-              {locale === "ko" ? "보드 상태 새로고침" : "Refresh board status"}
-            </button>
             <div className="flex flex-wrap justify-center gap-2 pt-1">
-              <a
-                href="https://x.com/medbedeee"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-2 rounded-full border border-[var(--border)] px-4 py-2 text-xs text-[var(--muted)]"
-              >
-                𝕏 {t("feedback")}
-              </a>
               <LightningTip variant="pill" />
+              <VersionBadge size="md" />
             </div>
-            <p className="text-center text-[10px] text-[var(--muted)]">
-              <BtcDisclaimer className="align-middle" />
-            </p>
-
-            {/* Bridge tab info footer */}
-            <section className="rounded-2xl border border-[var(--border)] bg-[var(--card)] px-3 py-3 flex flex-wrap items-center justify-between gap-2">
-              <div className="min-w-0">
-                <div className="text-[9px] uppercase tracking-[0.2em] text-[var(--muted)] font-semibold">
-                  SoloPulse · Info
-                </div>
-                <div className="text-xs text-[var(--fg)] mt-0.5">
-                  {locale === "ko"
-                    ? "풀 기본 · 보드 상세는 선택"
-                    : "Pool primary · board detail optional"}
-                </div>
-              </div>
-              <div className="shrink-0 text-right">
-                <div className="text-[9px] uppercase tracking-wider text-[var(--muted)]">
-                  {locale === "ko" ? "버전" : "Version"}
-                </div>
-                <VersionBadge size="md" />
-              </div>
-            </section>
           </div>
         )}
       </main>
