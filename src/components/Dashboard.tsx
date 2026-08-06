@@ -587,11 +587,11 @@ export function Dashboard({ address, onLogout }: Props) {
                 } · ${agent.tempC ?? deviceHr.device?.temp ?? "—"}°C · Source Engine ON`
             : miningLive
               ? locale === "ko"
-                ? `풀 실시간 컨택 · ${(poolHsLive / 1e12).toFixed(2)} TH/s · 지갑/풀 기준 소스엔진·확률 ON · 보드온도는 집 브리지 연결 시`
-                : `POOL LIVE · ${(poolHsLive / 1e12).toFixed(2)} TH/s · Source Engine ON (wallet/pool) · board temp needs home bridge`
+                ? `풀 실시간 컨택 · ${(poolHsLive / 1e12).toFixed(2)} TH/s · 지갑+풀 기준 소스엔진·확률 ON · 설치 불필요`
+                : `POOL LIVE · ${(poolHsLive / 1e12).toFixed(2)} TH/s · Source Engine ON (wallet+pool) · no install`
               : locale === "ko"
-                ? "컨택 없음 · 지갑주소+풀을 확인하고, 집 PC에서 install-always-on.bat (브리지) 실행"
-                : "NO CONTACT · check wallet+pool, run install-always-on.bat on home PC"}
+                ? "컨택 없음 · 지갑 주소와 풀(CKPool 등)을 확인하세요. 채굴 중이면 수 분 내 해시가 표시됩니다."
+                : "NO CONTACT · check wallet address + pool (e.g. CKPool). Hashrate appears within minutes while mining."}
         </div>
 
         {/* Analog instrument cluster — retro hi-fi panel (light + dark) */}
@@ -873,11 +873,15 @@ export function Dashboard({ address, onLogout }: Props) {
                         ? `OFFLINE · ${deviceHr.error}`
                         : deviceHr.status === "connecting" || deviceBusy
                           ? locale === "ko"
-                            ? "확인 중… 브리지·보드 응답 대기 (보통 1~3초)"
-                            : "Checking… bridge/board (usually 1–3s)"
-                          : locale === "ko"
-                            ? "미연결 · 연결/자동검색 · 또는 브리지 탭 .bat"
-                            : "Offline · Connect / Auto scan · or Bridge tab .bat"}
+                            ? "확인 중… 보드/터널 응답 대기 (보통 1~3초)"
+                            : "Checking… board/tunnel (usually 1–3s)"
+                          : miningLive
+                            ? locale === "ko"
+                              ? "보드 미연결 · 풀 데이터로 엔진 가동 중 · IP는 같은 Wi‑Fi/터널만"
+                              : "Board offline · engine on pool · IP only same Wi‑Fi/tunnel"
+                            : locale === "ko"
+                              ? "미연결 · 같은 Wi‑Fi에서 LAN IP 또는 공개 터널 URL"
+                              : "Offline · LAN IP on same Wi‑Fi or public tunnel URL"}
                 </div>
                 <div className="flex flex-wrap gap-1.5">
                   <button
@@ -896,10 +900,10 @@ export function Dashboard({ address, onLogout }: Props) {
                   </button>
                   <button
                     type="button"
-                    className="text-[11px] px-3 py-1.5 rounded-lg border border-amber-600/50 text-amber-300"
+                    className="text-[11px] px-3 py-1.5 rounded-lg border border-[var(--border)] text-[var(--muted)]"
                     onClick={() => setTab("bridge")}
                   >
-                    {locale === "ko" ? "브리지 탭 →" : "Bridge tab →"}
+                    {locale === "ko" ? "보드 옵션 →" : "Board options →"}
                   </button>
                 </div>
               </div>
@@ -1114,15 +1118,15 @@ export function Dashboard({ address, onLogout }: Props) {
             {!miningLive && (
               <div className="text-[11px] leading-relaxed text-amber-100 bg-amber-950/50 border border-amber-700/50 rounded-xl px-3 py-2.5">
                 {locale === "ko"
-                  ? "⚠ 채굴 신호 없음 — 지갑+풀을 확인하세요. 보드 온도까지 보려면 집 PC에서 install-always-on.bat 실행."
-                  : "⚠ No mining signal — check wallet+pool. For board temp run install-always-on.bat on home PC."}
+                  ? "⚠ 채굴 신호 없음 — 지갑 주소와 풀이 맞는지 확인하세요. 설치/브리지 없이 풀 API만으로 동작합니다."
+                  : "⚠ No mining signal — check wallet + pool. Works from pool API with no install/bridge."}
               </div>
             )}
             {miningLive && !boardLive && (
               <div className="text-[11px] leading-relaxed text-emerald-100 bg-emerald-950/40 border border-emerald-700/40 rounded-xl px-3 py-2.5">
                 {locale === "ko"
-                  ? "✓ 풀 기준 소스엔진 가동 중 (집 밖에서도 OK). 보드 온도·LAN 상세는 집 브리지 연결 시 추가됩니다."
-                  : "✓ Source Engine running on pool data (works away from home). Board temp when home bridge is online."}
+                  ? "✓ 풀 기준 소스엔진 가동 중 (집 밖·모바일 데이터 OK, 설치 없음). 보드 온도는 같은 Wi‑Fi IP 또는 공개 터널 URL 시에만 추가됩니다."
+                  : "✓ Source Engine on pool data (works away from home, no install). Board temp only with same-Wi‑Fi IP or public tunnel URL."}
               </div>
             )}
             {difficulty > 0 && (
@@ -1195,16 +1199,16 @@ export function Dashboard({ address, onLogout }: Props) {
               <section className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-4 space-y-2 text-[11px] text-[var(--muted)] leading-relaxed">
                 <h3 className="text-sm font-semibold text-[var(--fg)]">
                   {locale === "ko"
-                    ? "왜 사이트에 브리지가 필요한가"
-                    : "Why the bridge belongs in the product"}
+                    ? "기본 경로 vs 보드 상세"
+                    : "Default path vs board detail"}
                 </h3>
                 <p>
                   {locale === "ko"
-                    ? "웹은 집 사설 IP에 직접 들어갈 수 없습니다. 브리지가 마이너를 읽어 사이트로 밀어 줍니다. 연동되면 다운로드 안내는 자동으로 사라집니다."
-                    : "Cloud cannot open private LAN IPs. Bridge pushes miner data in. When linked, download setup hides automatically."}
+                    ? "지갑+풀만으로 해시·소스엔진·확률이 어디서나 실시간입니다. 보드 온도·LAN 실측은 같은 Wi‑Fi IP, 공개 HTTPS 터널, 또는 (선택) 집 PC 브리지가 있을 때만 추가됩니다. 공개 인터넷에서 집 사설 IP는 물리적으로 닿지 않습니다."
+                    : "Wallet+pool alone powers live hashrate, source engine, and odds from any network. Board temp/LAN stats need same-Wi‑Fi IP, a public HTTPS tunnel, or an optional home bridge. Private home IPs are unreachable from the public internet."}
                 </p>
                 <p className="font-mono text-[10px] text-[var(--muted)] bg-[var(--bg)] rounded-lg p-2">
-                  [NerdQAxe] ←LAN→ [start-bridge.bat] ←WSS→ [Railway] ←HTTPS→ [폰/PC]
+                  [Wallet] → [Pool API] → [Source Engine] · optional: [Board IP / Tunnel / Bridge]
                 </p>
               </section>
             )}
@@ -1213,7 +1217,7 @@ export function Dashboard({ address, onLogout }: Props) {
               onClick={() => void agent.refresh()}
               className="w-full rounded-xl bg-amber-500 text-stone-950 font-bold text-sm py-3"
             >
-              {locale === "ko" ? "브리지 상태 새로고침" : "Refresh bridge status"}
+              {locale === "ko" ? "보드 상태 새로고침" : "Refresh board status"}
             </button>
             <div className="flex flex-wrap justify-center gap-2 pt-1">
               <a
@@ -1238,8 +1242,8 @@ export function Dashboard({ address, onLogout }: Props) {
                 </div>
                 <div className="text-xs text-[var(--fg)] mt-0.5">
                   {locale === "ko"
-                    ? "로컬 브리지 · 보드 실시간 연동"
-                    : "Local bridge · live board link"}
+                    ? "풀 기본 · 보드 상세는 선택"
+                    : "Pool primary · board detail optional"}
                 </div>
               </div>
               <div className="shrink-0 text-right">

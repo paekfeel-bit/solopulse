@@ -12,7 +12,7 @@ const TABS: {
   { id: "engine", icon: "⚡", labelKo: "엔진", labelEn: "Engine" },
   { id: "odds", icon: "🎲", labelKo: "확률", labelEn: "Odds" },
   { id: "chart", icon: "📈", labelKo: "차트", labelEn: "Charts" },
-  { id: "bridge", icon: "🔗", labelKo: "브리지", labelEn: "Bridge" },
+  { id: "bridge", icon: "🔗", labelKo: "보드", labelEn: "Board" },
 ];
 
 export function BottomNav({

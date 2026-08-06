@@ -61,40 +61,40 @@ export function BridgePanel({
     );
   }
 
-  // Not live: full setup / download layout
+  // Not live: optional board extras (pool path already powers source engine)
   return (
-    <section className="rounded-2xl border border-amber-700/50 bg-gradient-to-b from-amber-950/30 to-[var(--bg)] p-3 sm:p-4 space-y-3">
+    <section className="rounded-2xl border border-[var(--border)] bg-[var(--card)] p-3 sm:p-4 space-y-3">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <div className="text-[10px] uppercase tracking-[0.25em] text-amber-500 font-semibold">
-            Local Bridge · SETUP
+          <div className="text-[10px] uppercase tracking-[0.25em] text-[var(--muted)] font-semibold">
+            {ko ? "보드 상세 · 선택" : "Board detail · optional"}
           </div>
           <h2 className="text-base sm:text-lg font-bold text-[var(--fg)]">
-            {ko ? "기기 브리지 연동" : "Link Device Bridge"}
+            {ko ? "온도·LAN 실측 (필수 아님)" : "Temp / LAN stats (not required)"}
           </h2>
           <p className="text-[11px] text-[var(--muted)] mt-1 leading-relaxed max-w-md">
             {ko
-              ? "다운로드 후 집 PC에서 실행하면 보드 실시간 해시가 들어옵니다. 연동되면 이 안내는 자동으로 사라집니다."
-              : "Download and run on home PC for live board hashrate. This setup UI hides automatically when linked."}
+              ? "해시레이트·소스엔진·확률은 지갑+풀만으로 이미 실시간입니다. 아래는 보드 온도 등 추가 지표용 옵션입니다."
+              : "Hashrate, source engine, and odds already run live from wallet+pool. Below is optional for board temperature and extra stats."}
           </p>
         </div>
-        <div className="text-[10px] font-mono px-2.5 py-1.5 rounded-lg border shrink-0 border-amber-600/50 text-amber-700 dark:text-amber-200 bg-amber-500/10">
-          ○ {agentStatus || "BRIDGE OFF"}
+        <div className="text-[10px] font-mono px-2.5 py-1.5 rounded-lg border shrink-0 border-[var(--border)] text-[var(--muted)]">
+          ○ {agentStatus || "BOARD OFF"}
         </div>
       </div>
 
-      <div className="text-xs text-amber-900 dark:text-amber-100/90 bg-[var(--bg)] rounded-lg px-3 py-2 border border-amber-900/20 dark:border-amber-900/40 leading-relaxed">
+      <div className="text-xs text-[var(--fg)] bg-[var(--bg)] rounded-lg px-3 py-2 border border-[var(--border)] leading-relaxed">
         {ko
-          ? "브리지가 꺼져 있으면 보드 LIVE가 안 뜹니다. 아래 .bat 를 마이너와 같은 Wi‑Fi PC에서 실행하고 창을 유지하세요."
-          : "Without the bridge, BOARD LIVE stays off. Run the .bat on the same Wi‑Fi PC as the miner."}
+          ? "① 같은 Wi‑Fi에서 보드 LAN IP 입력 · ② 공개 HTTPS 터널 URL · ③ (고급) 집 PC 브리지 .bat — 모두 선택 사항입니다."
+          : "① Board LAN IP on same Wi‑Fi · ② Public HTTPS tunnel URL · ③ (advanced) home PC bridge .bat — all optional."}
       </div>
 
       <div className="grid sm:grid-cols-2 gap-2">
         <a
           href={batHref}
-          className="text-center rounded-xl bg-amber-500 hover:bg-amber-400 text-stone-950 font-bold text-sm py-3 px-3"
+          className="text-center rounded-xl border border-amber-600/40 bg-amber-500/10 hover:bg-amber-500/20 text-amber-800 dark:text-amber-200 font-semibold text-sm py-3 px-3"
         >
-          {ko ? "① Bridge .bat 다운로드" : "① Download Bridge .bat"}
+          {ko ? "선택 · Bridge .bat" : "Optional · Bridge .bat"}
         </a>
         <a
           href={ps1Href}
@@ -106,21 +106,23 @@ export function BridgePanel({
 
       <a
         href={bridgePage}
-        className="block text-center rounded-xl border border-amber-700/40 text-amber-800 dark:text-amber-200/90 text-sm py-2.5 hover:bg-amber-500/10"
+        className="block text-center rounded-xl border border-[var(--border)] text-[var(--muted)] text-sm py-2.5 hover:bg-[var(--bg)]"
       >
-        {ko ? "브리지 설치 가이드 →" : "Bridge guide →"}
+        {ko ? "보드 연동 가이드 (선택) →" : "Board link guide (optional) →"}
       </a>
 
       {!compact && (
         <div className="text-[10px] font-mono text-[var(--muted)] bg-[var(--bg)] border border-[var(--border)] rounded-lg p-2.5 space-y-1 leading-relaxed">
           <div className="font-semibold">
-            {ko ? "이미 solopulse 폴더가 있는 경우" : "If repo already on disk"}
+            {ko ? "고급: 로컬 브리지 (CF SoloRoom)" : "Advanced: local bridge (CF SoloRoom)"}
           </div>
           <div>
             set CLIENT_ID={clientId.slice(0, 24)}
             {clientId.length > 24 ? "…" : ""}
           </div>
-          <div>set RAILWAY_WS=wss://solopulse-production.up.railway.app/ws</div>
+          <div>
+            set CF_WS=wss://solopulse-api.paekfeel.workers.dev/ws
+          </div>
           <div>start-bridge.bat</div>
         </div>
       )}

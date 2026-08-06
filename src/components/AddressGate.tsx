@@ -59,8 +59,14 @@ export function AddressGate({ onSubmit, defaultAddress = "" }: Props) {
     setStoredAddress(a);
     rememberLastAddress(a);
     setStoredPool(pool);
-    const host = normalizeDeviceHost(deviceIp) || deviceIp.trim() || "auto";
-    setStoredDeviceIp(host === "bridge" ? "auto" : host);
+    // Empty = pool-only (no board probe). "auto" still attempts optional discovery.
+    const raw = deviceIp.trim();
+    if (!raw) {
+      setStoredDeviceIp("");
+    } else {
+      const host = normalizeDeviceHost(raw) || raw;
+      setStoredDeviceIp(host === "bridge" ? "auto" : host);
+    }
     onSubmit(a);
   }
 
@@ -99,10 +105,15 @@ export function AddressGate({ onSubmit, defaultAddress = "" }: Props) {
             Solo<span className="text-amber-500">Pulse</span>
           </h1>
           <p className="mt-3 text-sm text-[var(--muted)] leading-relaxed">{t("tagline")}</p>
-          <p className="mt-2 text-[11px] text-[var(--muted)] leading-relaxed">
+          <p className="mt-2 text-[11px] text-amber-600/90 dark:text-amber-400/90 leading-relaxed font-medium">
             {locale === "ko"
-              ? "주소 + (선택) 기기 IP · auto 로 자동 검색"
-              : "Address + optional miner IP · auto scan"}
+              ? "필수: 지갑 + 풀 → 어디서나 해시·확률 실시간 (설치 없음)"
+              : "Required: wallet + pool → live hashrate/odds from any internet (no install)"}
+          </p>
+          <p className="mt-1 text-[11px] text-[var(--muted)] leading-relaxed">
+            {locale === "ko"
+              ? "선택: 기기 IP · 같은 Wi‑Fi 또는 공개 터널 URL일 때만 보드 온도"
+              : "Optional: miner IP · board temp only on same Wi‑Fi or public tunnel URL"}
           </p>
         </div>
 
@@ -158,7 +169,7 @@ export function AddressGate({ onSubmit, defaultAddress = "" }: Props) {
             >
               {t("deviceIp")}{" "}
               <span className="normal-case font-normal opacity-70">
-                ({locale === "ko" ? "보드 실측 · auto 가능" : "board · auto ok"})
+                ({locale === "ko" ? "선택 · 보드 온도" : "optional · board temp"})
               </span>
             </label>
             <input
@@ -166,7 +177,11 @@ export function AddressGate({ onSubmit, defaultAddress = "" }: Props) {
               type="text"
               autoComplete="off"
               spellCheck={false}
-              placeholder="auto 또는 172.30.1.33"
+              placeholder={
+                locale === "ko"
+                  ? "비워두기 / LAN IP / https://….trycloudflare.com"
+                  : "skip / LAN IP / https://….trycloudflare.com"
+              }
               value={deviceIp}
               onChange={(e) => setDeviceIp(e.target.value)}
               className="w-full rounded-xl bg-[var(--bg)] border border-[var(--border)] focus:border-amber-500 outline-none px-4 py-3 text-sm font-mono text-[var(--fg)] placeholder:text-[var(--muted)]"
@@ -177,7 +192,14 @@ export function AddressGate({ onSubmit, defaultAddress = "" }: Props) {
                 onClick={() => setDeviceIp("auto")}
                 className="text-[10px] px-2.5 py-1 rounded-lg border border-amber-600/50 bg-amber-500/10 text-amber-400"
               >
-                {locale === "ko" ? "auto (자동)" : "auto"}
+                {locale === "ko" ? "auto (시도)" : "auto (try)"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setDeviceIp("")}
+                className="text-[10px] px-2.5 py-1 rounded-lg border border-[var(--border)] text-[var(--muted)]"
+              >
+                {locale === "ko" ? "없음 (풀만)" : "none (pool only)"}
               </button>
               {["172.30.1.33", "172.30.1.70", "172.30.1.56", "192.168.1.45"].map(
                 (ip) => (
@@ -194,8 +216,8 @@ export function AddressGate({ onSubmit, defaultAddress = "" }: Props) {
             </div>
             <p className="mt-1.5 text-[10px] text-[var(--muted)] leading-relaxed">
               {locale === "ko"
-                ? "auto = 서버/브리지 자동 검색. 집 LAN이면 IP 직접 입력. 대시보드에서도 변경·재검색 가능."
-                : "auto = scan via server/bridge. Or type LAN IP. Editable again on dashboard."}
+                ? "공개 인터넷(모바일 데이터)에서는 집 LAN IP에 닿을 수 없습니다. 보드 상세는 같은 Wi‑Fi이거나 공개 HTTPS 터널 URL일 때만. 해시·엔진은 지갑+풀만으로 동작합니다."
+                : "From public internet (mobile data) home LAN IPs are unreachable. Board detail only on same Wi‑Fi or public HTTPS tunnel URL. Hashrate/engine work with wallet+pool alone."}
             </p>
           </div>
 

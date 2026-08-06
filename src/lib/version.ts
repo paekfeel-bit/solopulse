@@ -4,7 +4,7 @@
  *   2.0.1 → 2.0.2 → 2.0.3 …
  * Run: npm run version:bump  (auto before railway deploy)
  */
-export const APP_VERSION = "2.0.13";
+export const APP_VERSION = "2.0.14";
 
-/** UI label e.g. V2.0.13 */
+/** UI label e.g. V2.0.14 */
 export const APP_VERSION_LABEL = `V${APP_VERSION}`;

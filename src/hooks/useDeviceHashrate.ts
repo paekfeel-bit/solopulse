@@ -76,12 +76,9 @@ export function useDeviceHashrate(enabled: boolean) {
   }, [ip]);
 
   useEffect(() => {
-    // Keep user-chosen IP (including LAN). Empty → auto.
+    // Keep user choice: empty = pool-only (no board probe), auto = optional discovery
     let stored = getStoredDeviceIp();
-    if (!stored || stored === "undefined") {
-      stored = "auto";
-      setStoredDeviceIp("auto");
-    }
+    if (stored === "undefined" || stored == null) stored = "";
     setIpState(stored);
     ipRef.current = stored;
   }, []);
@@ -274,9 +271,17 @@ export function useDeviceHashrate(enabled: boolean) {
         }
 
         if (isCloudHostedPage()) {
-          lastErr =
-            lastErr ||
-            "브리지/터널 없음 — 하단 「브리지」탭에서 .bat 실행 후 다시 연결";
+          const privateAttempt =
+            !isAuto &&
+            isPrivateIPv4(primary.replace(/:\d+$/, "").replace(/^https?:\/\//i, ""));
+          if (privateAttempt && typeof window !== "undefined" && window.location.protocol === "https:") {
+            lastErr =
+              "HTTPS에서는 집 LAN IP 직접 접속이 막힘 · 같은 Wi‑Fi에서 접속하거나 공개 터널(https://…) URL 입력 · 해시/엔진은 지갑+풀만으로 이미 실시간";
+          } else {
+            lastErr =
+              lastErr ||
+              "보드 미연결 · 같은 Wi‑Fi LAN IP 또는 공개 HTTPS 터널 URL · 해시/엔진은 지갑+풀만으로 동작 (설치 불필요)";
+          }
         }
 
         return applyFail(primary, lastErr || "기기 연결 실패");

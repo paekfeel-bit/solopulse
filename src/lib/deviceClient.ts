@@ -299,17 +299,50 @@ export function canBrowserReachDevice(rawHost: string): boolean {
   return true;
 }
 
-/** Running on public cloud host (Vercel/Netlify) — no home LAN access */
+/**
+ * Public cloud / workers host — browser has no home LAN route.
+ * Private 192.168/172.x IPs only work when the *browser* is on the same Wi‑Fi
+ * (and not blocked by mixed content on HTTPS pages).
+ */
 export function isCloudHostedPage(): boolean {
   if (typeof window === "undefined") return false;
   const h = window.location.hostname.toLowerCase();
+  if (h === "localhost" || h === "127.0.0.1" || h === "[::1]") return false;
   return (
+    h.endsWith(".workers.dev") ||
+    h.endsWith(".pages.dev") ||
+    h.endsWith(".railway.app") ||
+    h.endsWith(".up.railway.app") ||
     h.endsWith(".vercel.app") ||
     h.endsWith(".netlify.app") ||
     h.endsWith(".netlify.com") ||
     h.includes("vercel") ||
     h.includes("netlify")
   );
+}
+
+/** Honest UX hint when private LAN IP is entered from a public HTTPS site */
+export function deviceConnectHint(rawHost: string, locale: "ko" | "en" = "en"): string {
+  const target = parseDeviceTarget(rawHost);
+  const isAuto = !rawHost || rawHost.trim().toLowerCase() === "auto";
+  if (isAuto) {
+    return locale === "ko"
+      ? "자동검색은 같은 Wi‑Fi(HTTP) 또는 공개 터널 URL에서만 됩니다. 해시레이트·확률은 지갑+풀만으로 실시간입니다."
+      : "Auto-scan only works on same Wi‑Fi (HTTP) or a public tunnel URL. Hashrate/odds are live from wallet+pool alone.";
+  }
+  if (target?.privateLan && typeof window !== "undefined" && window.location.protocol === "https:") {
+    return locale === "ko"
+      ? "HTTPS 사이트에서는 집 LAN IP(HTTP) 직접 접속이 브라우저에 막힙니다. 같은 Wi‑Fi에서 접속하거나 https://… 터널 URL을 넣으세요. 풀 데이터는 이미 실시간입니다."
+      : "Browsers block private HTTP LAN IPs from HTTPS sites. Use same Wi‑Fi page or an https:// tunnel URL. Pool data is already live.";
+  }
+  if (target && !target.privateLan && target.base.startsWith("https://")) {
+    return locale === "ko"
+      ? "공개 HTTPS 터널/URL로 보드 접속을 시도합니다."
+      : "Trying public HTTPS tunnel/URL for board stats.";
+  }
+  return locale === "ko"
+    ? "같은 네트워크의 보드 IP 또는 공개 터널 URL을 입력하세요. 필수 아님 — 지갑+풀이면 소스엔진 ON."
+    : "Enter board IP on same LAN or a public tunnel URL. Optional — wallet+pool already powers the source engine.";
 }
 
 /** Guess subnet candidates for scan UI */
