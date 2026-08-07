@@ -1,56 +1,54 @@
-# SoloPulse Capacitor (Method 2)
+# SoloPulse Capacitor (Android + iOS App Store)
 
-Hybrid Android/iOS shell around SoloPulse.
+Hybrid native shell around SoloPulse live web UI.
 
-## Why
+## Production URL
 
-Browser on HTTPS cannot call `http://192.168.x.x` (Mixed Content + CORS).  
-Native WebView with cleartext + `allowMixedContent` can.
-
-## Setup
-
-```bash
-npm install
-npm run build
-npx cap add android
-# optional: npx cap add ios   (macOS only)
-
-# Copy network security config
-# android/app/src/main/res/xml/network_security_config.xml
-# from android-network-security-config.xml
-
-npx cap sync android
-npx cap open android
-```
-
-In `AndroidManifest.xml` application tag:
-
-```xml
-android:usesCleartextTraffic="true"
-android:networkSecurityConfig="@xml/network_security_config"
-```
-
-## Production server URL
-
-`capacitor.config.ts` → `server.url` points at:
+`capacitor.config.ts` → `server.url`:
 
 ```
-https://solopulse-production.up.railway.app
+https://solopulse.paekfeel.workers.dev
 ```
 
 Override:
 
 ```bash
-set CAP_SERVER_URL=https://your-host
+# Windows
+set CAP_SERVER_URL=https://solopulse.paekfeel.workers.dev
 npx cap sync
 ```
 
-## Still recommended
+## Android (this PC)
 
-Keep **Method 1 bridge** (`start-bridge.bat`) for reliable real-time push when the phone is off-LAN (mobile data).  
-Capacitor direct LAN works best when phone is on the same Wi‑Fi as the miner.
+```bash
+npm install
+npx cap sync android
+npx cap open android
+```
+
+Cleartext / mixed content enabled for optional LAN miner probes.
+
+## iOS (Mac required)
+
+```bash
+npm install
+npx cap add ios      # once
+npx cap sync ios
+npx cap open ios     # Xcode → Archive → App Store
+```
+
+Full App Store checklist: **[APPLE_APP_STORE.md](./APPLE_APP_STORE.md)**
+
+## Why native shell
+
+| | Web only | Capacitor app |
+|--|----------|----------------|
+| App Store | ❌ | ✅ |
+| Home icon | PWA limited | Official |
+| HTTPS→LAN miner | Blocked | Better (plugins / cleartext) |
+| UI updates | Instant deploy | Instant (loads live URL) |
 
 ## Store fees
 
-- Google Play Console: one-time ~$25  
-- Apple Developer: ~$99/year  
+- Google Play: ~$25 one-time  
+- Apple Developer: **$99 / year**
